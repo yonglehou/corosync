@@ -105,7 +105,6 @@
 #include <corosync/corotypes.h>
 #include <corosync/corodefs.h>
 #include <corosync/list.h>
-#include <corosync/lcr/lcr_ifact.h>
 #include <corosync/totem/totempg.h>
 #include <corosync/engine/config.h>
 #include <corosync/logsys.h>
@@ -1132,49 +1131,11 @@ int main (int argc, char **argv, char **envp)
 
 	num_config_modules = 0;
 
-	/*
-	 * Bootstrap in the default configuration parser or use
-	 * the corosync default built in parser if the configuration parser
-	 * isn't overridden
-	 */
-	config_iface_init = getenv("COROSYNC_DEFAULT_CONFIG_IFACE");
-	if (!config_iface_init) {
-		config_iface_init = "corosync_parser";
+	coroparse_configparse(&error_string);
+	if (res == -1) {
+		log_printf (LOGSYS_LEVEL_ERROR, "%s", error_string);
+		corosync_exit_error (AIS_DONE_MAINCONFIGREAD);
 	}
-
-	/* Make a copy so we can deface it with strtok */
-	if ((config_iface = strdup(config_iface_init)) == NULL) {
-		log_printf (LOGSYS_LEVEL_ERROR, "exhausted virtual memory");
-		corosync_exit_error (AIS_DONE_OBJDB);
-	}
-
-	iface = strtok_r(config_iface, ":", &strtok_save_pt);
-	while (iface)
-	{
-		res = lcr_ifact_reference (
-			&config_handle,
-			iface,
-			config_version,
-			&config_p,
-			0);
-
-		config = (struct config_iface_ver0 *)config_p;
-		if (res == -1) {
-			log_printf (LOGSYS_LEVEL_ERROR, "Corosync Executive couldn't open configuration component '%s'\n", iface);
-			corosync_exit_error (AIS_DONE_MAINCONFIGREAD);
-		}
-
-		res = config->config_readconfig(&error_string);
-		if (res == -1) {
-			log_printf (LOGSYS_LEVEL_ERROR, "%s", error_string);
-			corosync_exit_error (AIS_DONE_MAINCONFIGREAD);
-		}
-		log_printf (LOGSYS_LEVEL_NOTICE, "%s", error_string);
-		config_modules[num_config_modules++] = config;
-
-		iface = strtok_r(NULL, ":", &strtok_save_pt);
-	}
-	free(config_iface);
 
 	res = corosync_main_config_read (&error_string);
 	if (res == -1) {

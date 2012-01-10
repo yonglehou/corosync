@@ -43,9 +43,6 @@ TOTEM_SRC		+= totemiba.c
 endif
 
 ICMAP_SRC		= icmap.c
-LCRSO_SRC		= vsf_ykd.c coroparse.c vsf_quorum.c
-LCRSO_OBJS		= $(LCRSO_SRC:%.c=%.o)
-LCRSO			= $(LCRSO_SRC:%.c=%.lcrso)
 
 lib_LIBRARIES		= libtotem_pg.a libicmap.a
 sbin_PROGRAMS		= corosync
@@ -55,7 +52,9 @@ libicmap_a_SOURCES	= $(ICMAP_SRC)
 
 corosync_SOURCES 	= main.c ipc_glue.c util.c sync.c apidef.c service.c \
 			  timer.c totemconfig.c mainconfig.c quorum.c schedwrk.c \
-			  ../lcr/lcr_ifact.c evil.c syncv2.c logsys.c
+			  evil.c vsf_ykd.c coroparse.c vsf_quorum.c syncv2.c \
+			  logsys.c cfg.c cmap.c cpg.c evs.c mon.c pload.c \
+			  votequorum.c wd.c
 corosync_LDADD	  	= -ltotem_pg -licmap $(LIBQB_LIBS) $(statgrab_LIBS)
 corosync_DEPENDENCIES	= libtotem_pg.so.$(SONAME) libicmap.so.$(SONAME)
 corosync_LDFLAGS	= $(OS_DYFLAGS) -L./
@@ -74,12 +73,7 @@ noinst_HEADERS		= apidef.h crypto.h mainconfig.h main.h \
 			  totemudpu.h totemsrp.h util.h vsf.h schedwrk.h \
 			  evil.h syncv2.h fsm.h
 
-EXTRA_DIST		= $(LCRSO_SRC)
-
 if BUILD_DARWIN
-%.lcrso: %.o
-	$(CC) $(LDFLAGS) $(CFLAGS) -L$(top_builddir)/exec -licmap -bundle -bind_at_load -bundle_loader ./corosync $^ -o $@
-
 libtotem_pg.so.$(SONAME): $(TOTEM_OBJS)
 	$(CC) $(LDFLAGS) $(DARWIN_OPTS) $(TOTEM_OBJS) -o $@ -lpthread
 	ln -sf libtotem_pg.so.$(SONAME) libtotem_pg.so
@@ -93,19 +87,12 @@ libicmap.so.$(SONAME): $(ICMAP_OBJS)
 else
 
 if BUILD_SOLARIS
-%.lcrso: %.o
-	$(LD) $(LDFLAGS) -G $^ -o $@
-
 libtotem_pg.so.$(SONAME): $(TOTEM_OBJS)
 	$(LD) $(LDFLAGS) -G $(TOTEM_OBJS) -o $@ -lpthread
 	ln -sf libtotem_pg.so.$(SONAME) libtotem_pg.so
 	ln -sf libtotem_pg.so.$(SONAME) libtotem_pg.so.$(SOMAJOR)
 
 else
-
-%.lcrso: %.o
-	$(CC) $(LDFLAGS) $(CFLAGS) $(COVERAGE_LCRSO_EXTRA_LDFLAGS) -shared -Wl,-soname=$@ $^ -o $@
-
 libtotem_pg.so.$(SONAME): $(TOTEM_OBJS)
 	$(CC) -shared -o $@ \
 		-Wl,-soname=libtotem_pg.so.$(SOMAJOR) \
@@ -134,8 +121,6 @@ install-exec-local:
 	$(INSTALL) -d $(DESTDIR)/$(libdir)
 	$(INSTALL) -m 755 $(SHARED_LIBS) $(DESTDIR)/$(libdir)
 	$(CP) -a $(SHARED_LIBS_SO) $(SHARED_LIBS_SO_TWO) $(DESTDIR)/$(libdir)
-	$(INSTALL) -d $(DESTDIR)/$(LCRSODIR)
-	$(INSTALL) -m 755 $(LCRSO) $(DESTDIR)/$(LCRSODIR)
 
 uninstall-local:
 	cd $(DESTDIR)/$(libdir) && \
@@ -144,4 +129,4 @@ uninstall-local:
 		rm -f $(LCRSO)
 
 clean-local:
-	rm -f corosync *.o *.lcrso gmon.out *.da *.bb *.bbg *.so*
+	rm -f corosync *.o gmon.out *.da *.bb *.bbg *.so*

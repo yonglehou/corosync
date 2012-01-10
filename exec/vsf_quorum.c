@@ -195,43 +195,9 @@ static struct corosync_service_engine quorum_service_handler = {
 	.sync_mode				= CS_SYNC_V1
 };
 
-static struct lcr_iface corosync_quorum_ver0[1] = {
-	{
-		.name			= "corosync_quorum",
-		.version		= 0,
-		.versions_replace	= 0,
-		.versions_replace_count	= 0,
-		.dependencies		= 0,
-		.dependency_count	= 0,
-		.constructor		= NULL,
-		.destructor		= NULL,
-		.interfaces		= NULL,
-	},
-};
-
 static struct corosync_service_engine *quorum_get_service_handler_ver0 (void)
 {
 	return (&quorum_service_handler);
-}
-
-static struct lcr_comp quorum_comp_ver0 = {
-	.iface_count			= 1,
-	.ifaces				= corosync_quorum_ver0
-};
-
-static struct corosync_service_engine_iface_ver0 quorum_service_handler_iface = {
-	.corosync_get_service_engine_ver0 = quorum_get_service_handler_ver0
-};
-
-#ifdef COROSYNC_SOLARIS
-void corosync_lcr_component_register (void);
-
-void corosync_lcr_component_register (void) {
-#else
-__attribute__ ((constructor)) static void corosync_lcr_component_register (void) {
-#endif
-	lcr_component_register (&quorum_comp_ver0);
-	lcr_interfaces_set (&corosync_quorum_ver0[0], &quorum_service_handler_iface);
 }
 
 /* -------------------------------------------------- */
@@ -296,6 +262,7 @@ static int quorum_exec_init_fn (struct corosync_api_v1 *api)
 #ifdef COROSYNC_SOLARIS
 	logsys_subsys_init();
 #endif
+#ifdef SDAKE
 	corosync_api = api;
 	list_init (&lib_trackers_list);
 	list_init (&internal_trackers_list);
@@ -347,6 +314,7 @@ static int quorum_exec_init_fn (struct corosync_api_v1 *api)
 		quorum_type = 0;
 	}
 
+#endif
 	return (0);
 }
 

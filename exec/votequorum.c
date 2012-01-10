@@ -64,7 +64,6 @@
 #include <corosync/corodefs.h>
 #include <corosync/cfg.h>
 #include <corosync/list.h>
-#include <corosync/lcr/lcr_comp.h>
 #include <corosync/logsys.h>
 #include <corosync/mar_gen.h>
 #include <corosync/coroapi.h>
@@ -295,13 +294,6 @@ static struct corosync_exec_handler votequorum_exec_engine[] =
 
 static quorum_set_quorate_fn_t set_quorum;
 
-/*
- * lcrso object definition
- */
-static struct quorum_services_api_ver1 votequorum_iface_ver0 = {
-	.init				= votequorum_init
-};
-
 static struct corosync_service_engine quorum_service_handler = {
 	.name					= "corosync votes quorum service v0.91",
 	.id					= VOTEQUORUM_SERVICE,
@@ -319,60 +311,9 @@ static struct corosync_service_engine quorum_service_handler = {
 	.sync_mode				= CS_SYNC_V1
 };
 
-/*
- * Dynamic loader definition
- */
-static struct corosync_service_engine *quorum_get_service_handler_ver0 (void);
-
-static struct corosync_service_engine_iface_ver0 quorum_service_handler_iface = {
-	.corosync_get_service_engine_ver0 = quorum_get_service_handler_ver0
-};
-
-static struct lcr_iface corosync_quorum_ver0[2] = {
-	{
-		.name				= "corosync_votequorum",
-		.version			= 0,
-		.versions_replace		= 0,
-		.versions_replace_count		= 0,
-		.dependencies			= 0,
-		.dependency_count		= 0,
-		.constructor			= NULL,
-		.destructor			= NULL,
-		.interfaces			= (void **)(void *)&votequorum_iface_ver0
-	},
-	{
-		.name				= "corosync_votequorum_iface",
-		.version			= 0,
-		.versions_replace		= 0,
-		.versions_replace_count		= 0,
-		.dependencies			= 0,
-		.dependency_count		= 0,
-		.constructor			= NULL,
-		.destructor			= NULL,
-		.interfaces			= NULL
-	}
-};
-
-static struct lcr_comp quorum_comp_ver0 = {
-	.iface_count			= 2,
-	.ifaces				= corosync_quorum_ver0
-};
-
-
-static struct corosync_service_engine *quorum_get_service_handler_ver0 (void)
+struct corosync_service_engine *votequorum_get_service_engine_ver0 (void)
 {
 	return (&quorum_service_handler);
-}
-
-#ifdef COROSYNC_SOLARIS
-void corosync_lcr_component_register (void);
-void corosync_lcr_component_register (void) {
-#else
-__attribute__ ((constructor)) static void corosync_lcr_component_register (void) {
-#endif
-	lcr_interfaces_set (&corosync_quorum_ver0[0], &votequorum_iface_ver0);
-	lcr_interfaces_set (&corosync_quorum_ver0[1], &quorum_service_handler_iface);
-	lcr_component_register (&quorum_comp_ver0);
 }
 
 static void votequorum_init(struct corosync_api_v1 *api,
