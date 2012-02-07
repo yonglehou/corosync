@@ -7,5 +7,5 @@ Name: @LIB@
 Version: @LIBVERSION@
 Description: @LIB@
 Requires:
-Libs: -L${libdir} -l@LIB@
+Libs: -L${libdir} -l@LIB@ -lcorosync_common
 Cflags: -I${includedir}

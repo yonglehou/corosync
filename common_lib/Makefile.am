@@ -1,8 +1,7 @@
 #
 # Copyright (c) 2009 Red Hat, Inc.
 #
-# Authors: Andrew Beekhof
-#	   Steven Dake (sdake@redhat.com)
+# Authors: Angus Salkeld
 #
 # This software licensed under BSD license, the text of which follows:
 #
@@ -42,30 +41,12 @@ MAINTAINERCLEANFILES    = Makefile.in
 
 AM_CFLAGS		= -fPIC
 
-AM_LDFLAGS		= -lpthread -L../common_lib -lcorosync_common
-
 INCLUDES		= -I$(top_builddir)/include -I$(top_srcdir)/include
 
-lib_LIBRARIES		= libcpg.a libquorum.a libevs.a libcfg.a \
-			  libvotequorum.a libpload.a libsam.a libcmap.a
+lib_LIBRARIES		= libcorosync_common.a
 SHARED_LIBS_SO		= $(lib_LIBRARIES:%.a=%.so)
 
-libcpg_a_SOURCES	= cpg.c
-libcfg_a_SOURCES	= cfg.c
-libevs_a_SOURCES	= evs.c
-libpload_a_SOURCES	= pload.c
-libquorum_a_SOURCES	= quorum.c
-libvotequorum_a_SOURCES	= votequorum.c
-libcmap_a_SOURCES	= cmap.c
-SAM_LINKER_ADD		= -L. -lquorum -lcmap
-libsam_a_SOURCES	= sam.c
-
-noinst_HEADERS		= util.h \
-			  libcfg.versions \
-			  libcpg.versions \
-			  libevs.versions libpload.versions \
-			  libquorum.versions libvotequorum.versions \
-			  libsam.versions libcmap.versions
+libcorosync_common_a_SOURCES	= error_conversion.c
 
 if BUILD_DARWIN
 
@@ -88,7 +69,6 @@ else
 lib%.so: lib%.a
 	$(CC) -shared -o $@.$(call get_soname,$*) \
 		-Wl,-soname=lib$*.so.$(call get_major,$*) \
-		-Wl,-version-script=$(srcdir)/lib$*.versions \
 		-Wl,-whole-archive $^ -Wl,-no-whole-archive $(LDFLAGS) $(LIBQB_LIBS) $(AM_LDFLAGS) $(call get_linker_add,$*)
 	ln -sf lib$*.so.$(call get_soname,$*) lib$*.so
 	ln -sf lib$*.so.$(call get_soname,$*) lib$*.so.$(call get_major,$*)
