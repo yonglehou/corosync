@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2005-2006 MontaVista Software, Inc.
- * Copyright (c) 2006-2012 Red Hat, Inc.
+ * Copyright (c) 2006-2013 Red Hat, Inc.
  *
  * All rights reserved.
  *
@@ -70,7 +70,8 @@ LOGSYS_DECLARE_SUBSYS ("CFG");
 enum cfg_message_req_types {
         MESSAGE_REQ_EXEC_CFG_RINGREENABLE = 0,
 	MESSAGE_REQ_EXEC_CFG_KILLNODE = 1,
-	MESSAGE_REQ_EXEC_CFG_SHUTDOWN = 2
+	MESSAGE_REQ_EXEC_CFG_SHUTDOWN = 2,
+	MESSAGE_REQ_EXEC_CFG_RELOAD_CONFIG = 3
 };
 
 #define DEFAULT_SHUTDOWN_TIMEOUT 5
@@ -122,6 +123,10 @@ static void message_handler_req_exec_cfg_shutdown (
         const void *message,
         unsigned int nodeid);
 
+static void message_handler_req_exec_cfg_reload_config (
+        const void *message,
+        unsigned int nodeid);
+
 static void exec_cfg_killnode_endian_convert (void *msg);
 
 static void message_handler_req_lib_cfg_ringstatusget (
@@ -149,6 +154,14 @@ static void message_handler_req_lib_cfg_get_node_addrs (
 	const void *msg);
 
 static void message_handler_req_lib_cfg_local_get (
+	void *conn,
+	const void *msg);
+
+static void message_handler_req_lib_cfg_reload_config (
+	void *conn,
+	const void *msg);
+
+static void message_handler_req_lib_cfg_reload_config (
 	void *conn,
 	const void *msg);
 
@@ -184,6 +197,10 @@ static struct corosync_lib_handler cfg_lib_engine[] =
 	{ /* 6 */
 		.lib_handler_fn		= message_handler_req_lib_cfg_local_get,
 		.flow_control		= CS_LIB_FLOW_CONTROL_NOT_REQUIRED
+	},
+	{ /* 7 */
+		.lib_handler_fn		= message_handler_req_lib_cfg_reload_config,
+		.flow_control		= CS_LIB_FLOW_CONTROL_NOT_REQUIRED
 	}
 };
 
@@ -198,6 +215,9 @@ static struct corosync_exec_handler cfg_exec_engine[] =
 	},
 	{ /* 2 */
 		.exec_handler_fn = message_handler_req_exec_cfg_shutdown,
+	},
+	{ /* 4 */
+		.exec_handler_fn = message_handler_req_exec_cfg_reload_config,
 	}
 };
 
@@ -227,6 +247,11 @@ struct corosync_service_engine *cfg_get_service_engine_ver0 (void)
 }
 
 struct req_exec_cfg_ringreenable {
+	struct qb_ipc_request_header header __attribute__((aligned(8)));
+        mar_message_source_t source __attribute__((aligned(8)));
+};
+
+struct req_exec_cfg_reload_config {
 	struct qb_ipc_request_header header __attribute__((aligned(8)));
         mar_message_source_t source __attribute__((aligned(8)));
 };
@@ -523,6 +548,33 @@ static void message_handler_req_exec_cfg_shutdown (
 	if (nodeid == api->totem_nodeid_get()) {
 		api->shutdown_request();
 	}
+	LEAVE();
+}
+
+/*
+ * Reload configuration file
+ */
+static void message_handler_req_exec_cfg_reload_config (
+        const void *message,
+        unsigned int nodeid)
+{
+	const struct req_exec_cfg_reload_config *req_exec_cfg_reload_config = message;
+	struct res_lib_cfg_reload_config res_lib_cfg_reload_config;
+
+	ENTER();
+
+	log_printf(LOGSYS_LEVEL_NOTICE, "Config reload requested by node %d", nodeid);
+
+	// TODO - the actual reload
+
+	res_lib_cfg_reload_config.header.size = sizeof(res_lib_cfg_reload_config);
+	res_lib_cfg_reload_config.header.id = MESSAGE_RES_CFG_RELOAD_CONFIG;
+	res_lib_cfg_reload_config.header.error = CS_OK;
+
+	api->ipc_response_send(req_exec_cfg_reload_config->source.conn,
+			       &res_lib_cfg_reload_config,
+			       sizeof(res_lib_cfg_reload_config));
+
 	LEAVE();
 }
 
@@ -846,4 +898,26 @@ static void message_handler_req_lib_cfg_local_get (void *conn, const void *msg)
 
 	api->ipc_response_send(conn, &res_lib_cfg_local_get,
 		sizeof(res_lib_cfg_local_get));
+}
+
+static void message_handler_req_lib_cfg_reload_config (void *conn, const void *msg)
+{
+	struct req_exec_cfg_reload_config req_exec_cfg_reload_config;
+	struct iovec iovec;
+
+	ENTER();
+
+	req_exec_cfg_reload_config.header.size =
+		sizeof (struct req_exec_cfg_reload_config);
+	req_exec_cfg_reload_config.header.id = SERVICE_ID_MAKE (CFG_SERVICE,
+		MESSAGE_REQ_EXEC_CFG_RELOAD_CONFIG);
+	api->ipc_source_set (&req_exec_cfg_reload_config.source, conn);
+	api->ipc_refcnt_inc(conn);
+
+	iovec.iov_base = (char *)&req_exec_cfg_reload_config;
+	iovec.iov_len = sizeof (struct req_exec_cfg_reload_config);
+
+	assert (api->totem_mcast (&iovec, 1, TOTEM_SAFE) == 0);
+
+	LEAVE();
 }
