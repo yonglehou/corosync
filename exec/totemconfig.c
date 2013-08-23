@@ -83,6 +83,57 @@ static char error_string_response[512];
 
 static void add_totem_config_notification(struct totem_config *totem_config);
 
+
+/* All the volatile parameters are uint32s */
+static uint32_t *totem_get_param_by_name(struct totem_config *totem_config, const char *param_name)
+{
+	if (strcmp(param_name, "totem.token") == 0)
+		return &totem_config->token_timeout;
+	if (strcmp(param_name, "totem.token_retransmit") == 0)
+		return &totem_config->token_retransmit_timeout;
+	if (strcmp(param_name, "totem.hold") == 0)
+		return &totem_config->token_hold_timeout;
+	if (strcmp(param_name, "totem.token_retransmits_before_loss_const") == 0)
+		return &totem_config->token_retransmits_before_loss_const;
+	if (strcmp(param_name, "totem.join") == 0)
+		return &totem_config->join_timeout;
+	if (strcmp(param_name, "totem.send_join") == 0)
+		return &totem_config->send_join_timeout;
+	if (strcmp(param_name, "totem.consensus") == 0)
+		return &totem_config->consensus_timeout;
+	if (strcmp(param_name, "totem.merge") == 0)
+		return &totem_config->merge_timeout;
+	if (strcmp(param_name, "totem.downcheck") == 0)
+		return &totem_config->downcheck_timeout;
+	if (strcmp(param_name, "totem.fail_recv_const") == 0)
+		return &totem_config->fail_to_recv_const;
+	if (strcmp(param_name, "totem.seqno_unchanged_const") == 0)
+		return &totem_config->seqno_unchanged_const;
+	if (strcmp(param_name, "totem.rrp_token_expired_timeout") == 0)
+		return &totem_config->rrp_token_expired_timeout;
+	if (strcmp(param_name, "totem.rrp_problem_count_timeout") == 0)
+		return &totem_config->rrp_problem_count_timeout;
+	if (strcmp(param_name, "totem.rrp_problem_count_threshold") == 0)
+		return &totem_config->rrp_problem_count_threshold;
+	if (strcmp(param_name, "totem.rrp_problem_count_mcast_threshold") == 0)
+		return &totem_config->rrp_problem_count_mcast_threshold;
+	if (strcmp(param_name, "totem.rrp_autorecovery_check_timeout") == 0)
+		return &totem_config->rrp_autorecovery_check_timeout;
+	if (strcmp(param_name, "totem.heartbeat_failures_allowed") == 0)
+		return &totem_config->heartbeat_failures_allowed;
+	if (strcmp(param_name, "totem.max_network_delay") == 0)
+		return &totem_config->max_network_delay;
+	if (strcmp(param_name, "totem.window_size") == 0)
+		return &totem_config->window_size;
+	if (strcmp(param_name, "totem.max_messages") == 0)
+		return &totem_config->max_messages;
+	if (strcmp(param_name, "totem.miss_count_const") == 0)
+		return &totem_config->miss_count_const;
+
+	return NULL;
+}
+
+
 static void totem_volatile_config_read (struct totem_config *totem_config)
 {
 	char *str;
@@ -703,80 +754,12 @@ extern int totem_config_read (
 	return 0;
 }
 
-int totem_config_validate (
+static int totem_set_volatile_defaults (
 	struct totem_config *totem_config,
 	const char **error_string)
 {
 	static char local_error_reason[512];
-	char parse_error[512];
 	const char *error_reason = local_error_reason;
-	int i;
-	unsigned int interface_max = INTERFACE_MAX;
-
-	if (totem_config->interface_count == 0) {
-		error_reason = "No interfaces defined";
-		goto parse_error;
-	}
-
-	for (i = 0; i < totem_config->interface_count; i++) {
-		/*
-		 * Some error checking of parsed data to make sure its valid
-		 */
-
-		struct totem_ip_address null_addr;
-		memset (&null_addr, 0, sizeof (struct totem_ip_address));
-
-		if ((totem_config->transport_number == 0) &&
-			memcmp (&totem_config->interfaces[i].mcast_addr, &null_addr,
-				sizeof (struct totem_ip_address)) == 0) {
-			error_reason = "No multicast address specified";
-			goto parse_error;
-		}
-
-		if (totem_config->interfaces[i].ip_port == 0) {
-			error_reason = "No multicast port specified";
-			goto parse_error;
-		}
-
-		if (totem_config->interfaces[i].ttl > 255) {
-			error_reason = "Invalid TTL (should be 0..255)";
-			goto parse_error;
-		}
-		if (totem_config->transport_number != TOTEM_TRANSPORT_UDP &&
-		    totem_config->interfaces[i].ttl != 1) {
-			error_reason = "Can only set ttl on multicast transport types";
-			goto parse_error;
-		}
-
-		if (totem_config->interfaces[i].mcast_addr.family == AF_INET6 &&
-			totem_config->node_id == 0) {
-
-			error_reason = "An IPV6 network requires that a node ID be specified.";
-			goto parse_error;
-		}
-
-		if (totem_config->broadcast_use == 0 && totem_config->transport_number == 0) {
-			if (totem_config->interfaces[i].mcast_addr.family != totem_config->interfaces[i].bindnet.family) {
-				error_reason = "Multicast address family does not match bind address family";
-				goto parse_error;
-			}
-
-			if (totem_config->interfaces[i].mcast_addr.family != totem_config->interfaces[i].bindnet.family) {
-				error_reason =  "Not all bind address belong to the same IP family";
-				goto parse_error;
-			}
-			if (totemip_is_mcast (&totem_config->interfaces[i].mcast_addr) != 0) {
-				error_reason = "mcastaddr is not a correct multicast address.";
-				goto parse_error;
-			}
-		}
-	}
-
-	if (totem_config->version != 2) {
-		error_reason = "This totem parser can only parse version 2 configurations.";
-		goto parse_error;
-	}
-
 
 	if (totem_config->token_retransmits_before_loss_const == 0) {
 		totem_config->token_retransmits_before_loss_const =
@@ -888,6 +871,98 @@ int totem_config_validate (
 		goto parse_error;
 	}
 
+	if (totem_config->fail_to_recv_const == 0) {
+		totem_config->fail_to_recv_const = FAIL_TO_RECV_CONST;
+	}
+	if (totem_config->seqno_unchanged_const == 0) {
+		totem_config->seqno_unchanged_const = SEQNO_UNCHANGED_CONST;
+	}
+	return 0;
+
+parse_error:
+	snprintf (error_string_response, sizeof(error_string_response),
+		 "parse error in config: %s\n", error_reason);
+	*error_string = error_string_response;
+	return (-1);
+
+}
+
+int totem_config_validate (
+	struct totem_config *totem_config,
+	const char **error_string)
+{
+	static char local_error_reason[512];
+	char parse_error[512];
+	const char *error_reason = local_error_reason;
+	int i;
+	unsigned int interface_max = INTERFACE_MAX;
+
+	if (totem_config->interface_count == 0) {
+		error_reason = "No interfaces defined";
+		goto parse_error;
+	}
+
+	for (i = 0; i < totem_config->interface_count; i++) {
+		/*
+		 * Some error checking of parsed data to make sure its valid
+		 */
+
+		struct totem_ip_address null_addr;
+		memset (&null_addr, 0, sizeof (struct totem_ip_address));
+
+		if ((totem_config->transport_number == 0) &&
+			memcmp (&totem_config->interfaces[i].mcast_addr, &null_addr,
+				sizeof (struct totem_ip_address)) == 0) {
+			error_reason = "No multicast address specified";
+			goto parse_error;
+		}
+
+		if (totem_config->interfaces[i].ip_port == 0) {
+			error_reason = "No multicast port specified";
+			goto parse_error;
+		}
+
+		if (totem_config->interfaces[i].ttl > 255) {
+			error_reason = "Invalid TTL (should be 0..255)";
+			goto parse_error;
+		}
+		if (totem_config->transport_number != TOTEM_TRANSPORT_UDP &&
+		    totem_config->interfaces[i].ttl != 1) {
+			error_reason = "Can only set ttl on multicast transport types";
+			goto parse_error;
+		}
+
+		if (totem_config->interfaces[i].mcast_addr.family == AF_INET6 &&
+			totem_config->node_id == 0) {
+
+			error_reason = "An IPV6 network requires that a node ID be specified.";
+			goto parse_error;
+		}
+
+		if (totem_config->broadcast_use == 0 && totem_config->transport_number == 0) {
+			if (totem_config->interfaces[i].mcast_addr.family != totem_config->interfaces[i].bindnet.family) {
+				error_reason = "Multicast address family does not match bind address family";
+				goto parse_error;
+			}
+
+			if (totem_config->interfaces[i].mcast_addr.family != totem_config->interfaces[i].bindnet.family) {
+				error_reason =  "Not all bind address belong to the same IP family";
+				goto parse_error;
+			}
+			if (totemip_is_mcast (&totem_config->interfaces[i].mcast_addr) != 0) {
+				error_reason = "mcastaddr is not a correct multicast address.";
+				goto parse_error;
+			}
+		}
+	}
+
+	if (totem_config->version != 2) {
+		error_reason = "This totem parser can only parse version 2 configurations.";
+		goto parse_error;
+	}
+
+	totem_set_volatile_defaults(totem_config, error_string);
+
 	/*
 	 * RRP values validation
 	 */
@@ -953,13 +1028,6 @@ int totem_config_validate (
 		goto parse_error;
 	}
 
-
-	if (totem_config->fail_to_recv_const == 0) {
-		totem_config->fail_to_recv_const = FAIL_TO_RECV_CONST;
-	}
-	if (totem_config->seqno_unchanged_const == 0) {
-		totem_config->seqno_unchanged_const = SEQNO_UNCHANGED_CONST;
-	}
 	if (totem_config->net_mtu == 0) {
 		totem_config->net_mtu = 1500;
 	}
@@ -1107,7 +1175,28 @@ static void totem_change_notify(
 	struct icmap_notify_value old_val,
 	void *user_data)
 {
-	totem_volatile_config_read((struct totem_config *)user_data);
+	uint32_t *param;
+	const char *error_string;
+
+	param = totem_get_param_by_name((struct totem_config *)user_data, key_name);
+	if (!param)
+		return;
+
+	switch (event)
+	{
+	case QB_MAP_NOTIFY_DELETED:
+		*param = 0;
+		totem_set_volatile_defaults((struct totem_config *)user_data, &error_string);
+		break;
+	case QB_MAP_NOTIFY_REPLACED:
+	case QB_MAP_NOTIFY_INSERTED:
+		if (new_val.type == ICMAP_VALUETYPE_UINT32)
+			memcpy(param, new_val.data, new_val.len);
+		/* Other value types not supported, or needed (yet) */
+		break;
+	default:
+		break;
+	}
 }
 
 static void add_totem_config_notification(struct totem_config *totem_config)
