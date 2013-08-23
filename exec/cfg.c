@@ -565,7 +565,20 @@ static void message_handler_req_exec_cfg_reload_config (
 
 	log_printf(LOGSYS_LEVEL_NOTICE, "Config reload requested by node %d", nodeid);
 
-	// TODO - the actual reload
+
+	// CC: TODO - the actual reload
+	// Need to set up a new hastable for icmap and read (via coroparse into that)
+
+	// Send RELOAD_START notification (via icmap)
+//	res = coroparse_configparse(&error_string);
+//	if (res == -1) {
+//		log_printf (LOGSYS_LEVEL_ERROR, "%s", error_string);
+//		corosync_exit_error (COROSYNC_DONE_MAINCONFIGREAD);
+//	}
+
+	// CC: TODO
+	// Detect deleted entries and notify
+
 
 	res_lib_cfg_reload_config.header.size = sizeof(res_lib_cfg_reload_config);
 	res_lib_cfg_reload_config.header.id = MESSAGE_RES_CFG_RELOAD_CONFIG;

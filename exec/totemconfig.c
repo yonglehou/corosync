@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2002-2005 MontaVista Software, Inc.
- * Copyright (c) 2006-2012 Red Hat, Inc.
+ * Copyright (c) 2006-2013 Red Hat, Inc.
  *
  * All rights reserved.
  *
@@ -84,7 +84,7 @@ static char error_string_response[512];
 static void add_totem_config_notification(struct totem_config *totem_config);
 
 
-/* All the volatile parameters are uint32s */
+/* All the volatile parameters are uint32s, luckily */
 static uint32_t *totem_get_param_by_name(struct totem_config *totem_config, const char *param_name)
 {
 	if (strcmp(param_name, "totem.token") == 0)
@@ -877,6 +877,52 @@ static int totem_set_volatile_defaults (
 	if (totem_config->seqno_unchanged_const == 0) {
 		totem_config->seqno_unchanged_const = SEQNO_UNCHANGED_CONST;
 	}
+
+/* RRP volatile values */
+
+	if (totem_config->rrp_problem_count_timeout == 0) {
+		totem_config->rrp_problem_count_timeout = RRP_PROBLEM_COUNT_TIMEOUT;
+	}
+	if (totem_config->rrp_problem_count_timeout < MINIMUM_TIMEOUT) {
+		snprintf (local_error_reason, sizeof(local_error_reason),
+			"The RRP problem count timeout parameter (%d ms) may not be less then (%d ms).",
+			totem_config->rrp_problem_count_timeout, MINIMUM_TIMEOUT);
+		goto parse_error;
+	}
+	if (totem_config->rrp_problem_count_threshold == 0) {
+		totem_config->rrp_problem_count_threshold = RRP_PROBLEM_COUNT_THRESHOLD_DEFAULT;
+	}
+	if (totem_config->rrp_problem_count_mcast_threshold == 0) {
+		totem_config->rrp_problem_count_mcast_threshold = totem_config->rrp_problem_count_threshold * 10;
+	}
+	if (totem_config->rrp_problem_count_threshold < RRP_PROBLEM_COUNT_THRESHOLD_MIN) {
+		snprintf (local_error_reason, sizeof(local_error_reason),
+			"The RRP problem count threshold (%d problem count) may not be less then (%d problem count).",
+			totem_config->rrp_problem_count_threshold, RRP_PROBLEM_COUNT_THRESHOLD_MIN);
+		goto parse_error;
+	}
+	if (totem_config->rrp_problem_count_mcast_threshold < RRP_PROBLEM_COUNT_THRESHOLD_MIN) {
+		snprintf (local_error_reason, sizeof(local_error_reason),
+			"The RRP multicast problem count threshold (%d problem count) may not be less then (%d problem count).",
+			totem_config->rrp_problem_count_mcast_threshold, RRP_PROBLEM_COUNT_THRESHOLD_MIN);
+		goto parse_error;
+	}
+	if (totem_config->rrp_token_expired_timeout == 0) {
+		totem_config->rrp_token_expired_timeout =
+			totem_config->token_retransmit_timeout;
+	}
+
+	if (totem_config->rrp_token_expired_timeout < MINIMUM_TIMEOUT) {
+		snprintf (local_error_reason, sizeof(local_error_reason),
+			"The RRP token expired timeout parameter (%d ms) may not be less then (%d ms).",
+			totem_config->rrp_token_expired_timeout, MINIMUM_TIMEOUT);
+		goto parse_error;
+	}
+
+	if (totem_config->rrp_autorecovery_check_timeout == 0) {
+		totem_config->rrp_autorecovery_check_timeout = RRP_AUTORECOVERY_CHECK_TIMEOUT;
+	}
+
 	return 0;
 
 parse_error:
@@ -972,48 +1018,6 @@ int totem_config_validate (
 		snprintf (local_error_reason, sizeof(local_error_reason),
 			"The RRP mode \"%s\" specified is invalid.  It must be none, active, or passive.\n", totem_config->rrp_mode);
 		goto parse_error;
-	}
-	if (totem_config->rrp_problem_count_timeout == 0) {
-		totem_config->rrp_problem_count_timeout = RRP_PROBLEM_COUNT_TIMEOUT;
-	}
-	if (totem_config->rrp_problem_count_timeout < MINIMUM_TIMEOUT) {
-		snprintf (local_error_reason, sizeof(local_error_reason),
-			"The RRP problem count timeout parameter (%d ms) may not be less then (%d ms).",
-			totem_config->rrp_problem_count_timeout, MINIMUM_TIMEOUT);
-		goto parse_error;
-	}
-	if (totem_config->rrp_problem_count_threshold == 0) {
-		totem_config->rrp_problem_count_threshold = RRP_PROBLEM_COUNT_THRESHOLD_DEFAULT;
-	}
-	if (totem_config->rrp_problem_count_mcast_threshold == 0) {
-		totem_config->rrp_problem_count_mcast_threshold = totem_config->rrp_problem_count_threshold * 10;
-	}
-	if (totem_config->rrp_problem_count_threshold < RRP_PROBLEM_COUNT_THRESHOLD_MIN) {
-		snprintf (local_error_reason, sizeof(local_error_reason),
-			"The RRP problem count threshold (%d problem count) may not be less then (%d problem count).",
-			totem_config->rrp_problem_count_threshold, RRP_PROBLEM_COUNT_THRESHOLD_MIN);
-		goto parse_error;
-	}
-	if (totem_config->rrp_problem_count_mcast_threshold < RRP_PROBLEM_COUNT_THRESHOLD_MIN) {
-		snprintf (local_error_reason, sizeof(local_error_reason),
-			"The RRP multicast problem count threshold (%d problem count) may not be less then (%d problem count).",
-			totem_config->rrp_problem_count_mcast_threshold, RRP_PROBLEM_COUNT_THRESHOLD_MIN);
-		goto parse_error;
-	}
-	if (totem_config->rrp_token_expired_timeout == 0) {
-		totem_config->rrp_token_expired_timeout =
-			totem_config->token_retransmit_timeout;
-	}
-
-	if (totem_config->rrp_token_expired_timeout < MINIMUM_TIMEOUT) {
-		snprintf (local_error_reason, sizeof(local_error_reason),
-			"The RRP token expired timeout parameter (%d ms) may not be less then (%d ms).",
-			totem_config->rrp_token_expired_timeout, MINIMUM_TIMEOUT);
-		goto parse_error;
-	}
-
-	if (totem_config->rrp_autorecovery_check_timeout == 0) {
-		totem_config->rrp_autorecovery_check_timeout = RRP_AUTORECOVERY_CHECK_TIMEOUT;
 	}
 
 	if (strcmp (totem_config->rrp_mode, "none") == 0) {
