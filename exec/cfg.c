@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2005-2006 MontaVista Software, Inc.
- * Copyright (c) 2006-2012 Red Hat, Inc.
+ * Copyright (c) 2006-2013 Red Hat, Inc.
  *
  * All rights reserved.
  *
@@ -64,13 +64,15 @@
 #include <corosync/corodefs.h>
 
 #include "service.h"
+#include "main.h"
 
 LOGSYS_DECLARE_SUBSYS ("CFG");
 
 enum cfg_message_req_types {
         MESSAGE_REQ_EXEC_CFG_RINGREENABLE = 0,
 	MESSAGE_REQ_EXEC_CFG_KILLNODE = 1,
-	MESSAGE_REQ_EXEC_CFG_SHUTDOWN = 2
+	MESSAGE_REQ_EXEC_CFG_SHUTDOWN = 2,
+	MESSAGE_REQ_EXEC_CFG_RELOAD_CONFIG = 3
 };
 
 #define DEFAULT_SHUTDOWN_TIMEOUT 5
@@ -122,6 +124,10 @@ static void message_handler_req_exec_cfg_shutdown (
         const void *message,
         unsigned int nodeid);
 
+static void message_handler_req_exec_cfg_reload_config (
+        const void *message,
+        unsigned int nodeid);
+
 static void exec_cfg_killnode_endian_convert (void *msg);
 
 static void message_handler_req_lib_cfg_ringstatusget (
@@ -149,6 +155,14 @@ static void message_handler_req_lib_cfg_get_node_addrs (
 	const void *msg);
 
 static void message_handler_req_lib_cfg_local_get (
+	void *conn,
+	const void *msg);
+
+static void message_handler_req_lib_cfg_reload_config (
+	void *conn,
+	const void *msg);
+
+static void message_handler_req_lib_cfg_reload_config (
 	void *conn,
 	const void *msg);
 
@@ -184,6 +198,10 @@ static struct corosync_lib_handler cfg_lib_engine[] =
 	{ /* 6 */
 		.lib_handler_fn		= message_handler_req_lib_cfg_local_get,
 		.flow_control		= CS_LIB_FLOW_CONTROL_NOT_REQUIRED
+	},
+	{ /* 7 */
+		.lib_handler_fn		= message_handler_req_lib_cfg_reload_config,
+		.flow_control		= CS_LIB_FLOW_CONTROL_NOT_REQUIRED
 	}
 };
 
@@ -198,6 +216,9 @@ static struct corosync_exec_handler cfg_exec_engine[] =
 	},
 	{ /* 2 */
 		.exec_handler_fn = message_handler_req_exec_cfg_shutdown,
+	},
+	{ /* 4 */
+		.exec_handler_fn = message_handler_req_exec_cfg_reload_config,
 	}
 };
 
@@ -227,6 +248,11 @@ struct corosync_service_engine *cfg_get_service_engine_ver0 (void)
 }
 
 struct req_exec_cfg_ringreenable {
+	struct qb_ipc_request_header header __attribute__((aligned(8)));
+        mar_message_source_t source __attribute__((aligned(8)));
+};
+
+struct req_exec_cfg_reload_config {
 	struct qb_ipc_request_header header __attribute__((aligned(8)));
         mar_message_source_t source __attribute__((aligned(8)));
 };
@@ -523,6 +549,134 @@ static void message_handler_req_exec_cfg_shutdown (
 	if (nodeid == api->totem_nodeid_get()) {
 		api->shutdown_request();
 	}
+	LEAVE();
+}
+
+static int nullcheck_strcmp(const char* left, const char *right)
+{
+	if (!left && right)
+		return -1;
+	if (left && ! right)
+		return 1;
+
+	return strcmp(left, right);
+}
+
+static void remove_deleted_entries(icmap_map_t temp_map, const char *prefix)
+{
+	icmap_iter_t old_iter;
+	icmap_iter_t new_iter;
+	const char *old_key, *new_key;
+	int ret;
+
+	old_iter = icmap_iter_init(prefix);
+	new_iter = icmap_iter_init_r(temp_map, prefix);
+
+	old_key = icmap_iter_next(old_iter, NULL, NULL);
+	new_key = icmap_iter_next(new_iter, NULL, NULL);
+
+	while (old_key || new_key) {
+		ret = nullcheck_strcmp(old_key, new_key);
+		if ((ret < 0 && old_key) || !new_key) {
+			/*
+			 * new_key is greater, a line (or more) has been deleted
+			 * Continue until old is >= new
+			 */
+			do {
+				/* Remove it from icmap */
+				icmap_delete(old_key);
+
+				old_key = icmap_iter_next(old_iter, NULL, NULL);
+				ret = nullcheck_strcmp(old_key, new_key);
+			} while (ret < 0 && old_key);
+		}
+		else if ((ret > 0 && new_key) || !old_key) {
+			/*
+			 * old_key is greater, a line (or more) has been added
+			 * Continue until new is >= old
+			 *
+			 * we don't need to do anything special with this like tell
+			 * icmap. That will happen when we copy the values over
+			 */
+			do {
+				new_key = icmap_iter_next(new_iter, NULL, NULL);
+				ret = nullcheck_strcmp(old_key, new_key);
+			} while (ret > 0 && new_key);
+		}
+		if (ret == 0) {
+			new_key = icmap_iter_next(new_iter, NULL, NULL);
+			old_key = icmap_iter_next(old_iter, NULL, NULL);
+		}
+	}
+}
+
+/*
+ * Reload configuration file
+ */
+static void message_handler_req_exec_cfg_reload_config (
+        const void *message,
+        unsigned int nodeid)
+{
+	const struct req_exec_cfg_reload_config *req_exec_cfg_reload_config = message;
+	struct res_lib_cfg_reload_config res_lib_cfg_reload_config;
+	icmap_map_t temp_map;
+	const char *error_string;
+	int res = CS_OK;
+
+	ENTER();
+
+	log_printf(LOGSYS_LEVEL_NOTICE, "Config reload requested by node %d", nodeid);
+
+	/*
+	 * Set up a new hastable for icmap and read (via coroparse into that)
+	 */
+	if ((res = icmap_init_r(&temp_map)) != CS_OK) {
+		log_printf(LOGSYS_LEVEL_ERROR, "Unable to create temporary icmap. config file reload cancelled\n");
+		goto reload_return;
+	}
+
+	/*
+	 * Load new config into a temporary map
+	 */
+	res = coroparse_configparse(temp_map, &error_string);
+	if (res == -1) {
+		log_printf (LOGSYS_LEVEL_ERROR, "Unable to reload config file: %s", error_string);
+		res = CS_ERR_LIBRARY;
+		goto reload_return;
+	}
+
+	// TODO: Send RELOAD_START notification (via icmap)
+
+	/* Detect deleted entries and remove them from icmap */
+	remove_deleted_entries(temp_map, "totem.");
+	remove_deleted_entries(temp_map, "logging.");
+	remove_deleted_entries(temp_map, "quorum.");
+	remove_deleted_entries(temp_map, "nodelist.");
+	// CC: More ?
+
+	/*
+	 * Copy new keys into live config
+	 * If this fails we have a partially loaded config because some keys (above) might have
+	 * been reset to defaults!
+	 */
+	if ( (res = icmap_copy_map(icmap_get_global_map(), temp_map)) != CS_OK) {
+		log_printf (LOGSYS_LEVEL_ERROR, "Error making new config live\n");
+		/* Don't skip sending RELOAD_END, clients will be expecting it */
+	}
+
+	// TODO:  Send RELOAD_END notification (via icmap)
+
+reload_return:
+	/* All done, return result to the caller if it was on this system */
+	if (nodeid == api->totem_nodeid_get()) {
+		res_lib_cfg_reload_config.header.size = sizeof(res_lib_cfg_reload_config);
+		res_lib_cfg_reload_config.header.id = MESSAGE_RES_CFG_RELOAD_CONFIG;
+		res_lib_cfg_reload_config.header.error = res;
+		api->ipc_response_send(req_exec_cfg_reload_config->source.conn,
+				       &res_lib_cfg_reload_config,
+				       sizeof(res_lib_cfg_reload_config));
+	}
+
 	LEAVE();
 }
 
@@ -846,4 +1000,26 @@ static void message_handler_req_lib_cfg_local_get (void *conn, const void *msg)
 
 	api->ipc_response_send(conn, &res_lib_cfg_local_get,
 		sizeof(res_lib_cfg_local_get));
+}
+
+static void message_handler_req_lib_cfg_reload_config (void *conn, const void *msg)
+{
+	struct req_exec_cfg_reload_config req_exec_cfg_reload_config;
+	struct iovec iovec;
+
+	ENTER();
+
+	req_exec_cfg_reload_config.header.size =
+		sizeof (struct req_exec_cfg_reload_config);
+	req_exec_cfg_reload_config.header.id = SERVICE_ID_MAKE (CFG_SERVICE,
+		MESSAGE_REQ_EXEC_CFG_RELOAD_CONFIG);
+	api->ipc_source_set (&req_exec_cfg_reload_config.source, conn);
+	api->ipc_refcnt_inc(conn);
+
+	iovec.iov_base = (char *)&req_exec_cfg_reload_config;
+	iovec.iov_len = sizeof (struct req_exec_cfg_reload_config);
+
+	assert (api->totem_mcast (&iovec, 1, TOTEM_SAFE) == 0);
+
+	LEAVE();
 }
