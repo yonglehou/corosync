@@ -151,7 +151,7 @@ static void reload_config_do (void)
 
 	result = corosync_cfg_reload_config (handle);
 	if (result != CS_OK) {
-		printf ("Could not reload configuration%d\n", result);
+		printf ("Could not reload configuration %d\n", result);
 	}
 
 	(void)corosync_cfg_finalize (handle);
