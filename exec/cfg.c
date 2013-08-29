@@ -551,6 +551,67 @@ static void message_handler_req_exec_cfg_shutdown (
 	LEAVE();
 }
 
+static int nullcheck_strcmp(const char* left, const char *right)
+{
+	if (!left && right)
+		return -1;
+	if (left && ! right)
+		return 1;
+
+	return strcmp(left, right);
+}
+
+static void remove_deleted_entries(icmap_map_t *temp_map, const char *prefix)
+{
+	icmap_iter_t *old_iter;
+	icmap_iter_t *new_iter;
+	char *old_key, *new_key;
+	int more_to_come_old = 1, more_to_come_new = 1;
+
+	old_iter = icmap_iter_init(prefix);
+	new_iter = icmap_iter_init_r(temp_map, prefix);
+
+	old_key = icmap_iter_next(old_iter);
+	new_key = icmap_iter_next_r(temp_map, new_iter);
+
+	while (old_key || new_key) {
+		ret = nullcheck_strcmp(old_key, new_key);
+		ret = nullcheck_strcmp(old_line, new_line);
+
+		if ((ret < 0 && old_key) || !new_key) {
+			/*
+			 * new_key is greater, a line (or more) has been deleted
+			 * Continue until old is >= new
+			 */
+			do {
+				//printf("DELETED: %s\n", old_key);
+				icmap_delete(old_key);
+
+				old_key = icmap_iter_next(old_iter);
+				ret = nullcheck_strcmp(old_key, new_key);
+			} while (ret < 0 && old_key);
+		}
+		else if ((ret > 0 && new_key) || !old_key) {
+			/*
+			 * old_key is greater, a line (or more) has been added
+			 * Continue until new is >= old
+			 *
+			 * we don't need to do anything special with this like tell
+			 * icmap. That will happen when we copy the values over
+			 */
+			do {
+				//printf("ADDED: %s\n", new_key);
+				new_key = icmap_iter_next_r(temp_map, new_iter);
+				ret = nullcheck_strcmp(old_key, new_key);
+			} while (ret > 0 && new_key);
+		}
+		if (ret == 0) {
+			new_key = icmap_iter_next_r(temp_map, new_iter);
+			old_key = icmap_iter_next_r(old_iter);
+		}
+	}
+}
+
 /*
  * Reload configuration file
  */
@@ -560,33 +621,43 @@ static void message_handler_req_exec_cfg_reload_config (
 {
 	const struct req_exec_cfg_reload_config *req_exec_cfg_reload_config = message;
 	struct res_lib_cfg_reload_config res_lib_cfg_reload_config;
+	icmap_map_t *temp_map;
 
 	ENTER();
 
 	log_printf(LOGSYS_LEVEL_NOTICE, "Config reload requested by node %d", nodeid);
 
-
 	// CC: TODO - the actual reload
 	// Need to set up a new hastable for icmap and read (via coroparse into that)
 
-	// Send RELOAD_START notification (via icmap)
-//	res = coroparse_configparse(&error_string);
+	// TODO: Send RELOAD_START notification (via icmap)
+//	res = coroparse_configparse(temp_map, &error_string);
 //	if (res == -1) {
 //		log_printf (LOGSYS_LEVEL_ERROR, "%s", error_string);
 //		corosync_exit_error (COROSYNC_DONE_MAINCONFIGREAD);
 //	}
 
-	// CC: TODO
-	// Detect deleted entries and notify
+	// Detect deleted entries and remove them from icmap
+	remove_deleted_entries(temp_map, "totem.");
+	remove_deleted_entries(temp_map, "logging.");
+	remove_deleted_entries(temp_map, "quorum.");
+	remove_deleted_entries(temp_map, "nodelist.");
+	// CC: More ?
 
+	// TODO: Copy new keys into live config
 
-	res_lib_cfg_reload_config.header.size = sizeof(res_lib_cfg_reload_config);
-	res_lib_cfg_reload_config.header.id = MESSAGE_RES_CFG_RELOAD_CONFIG;
-	res_lib_cfg_reload_config.header.error = CS_OK;
+	// TODO:  Send RELOAD_END notification (via icmap)
 
-	api->ipc_response_send(req_exec_cfg_reload_config->source.conn,
-			       &res_lib_cfg_reload_config,
-			       sizeof(res_lib_cfg_reload_config));
+	/* All done, return result to the caller if it was on this system */
+	if (nodeid == api->totem_nodeid_get()) {
+		res_lib_cfg_reload_config.header.size = sizeof(res_lib_cfg_reload_config);
+		res_lib_cfg_reload_config.header.id = MESSAGE_RES_CFG_RELOAD_CONFIG;
+		res_lib_cfg_reload_config.header.error = CS_OK;
+
+		api->ipc_response_send(req_exec_cfg_reload_config->source.conn,
+				       &res_lib_cfg_reload_config,
+				       sizeof(res_lib_cfg_reload_config));
+	}
 
 	LEAVE();
 }

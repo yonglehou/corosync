@@ -543,6 +543,8 @@ static void main_logging_notify(
 {
 	const char *error_string;
 
+	//CC: TODO: if we get a RELOAD start then suspend changes until we get a RELOAD stop
+
 	/*
 	 * Reload the logsys configuration
 	 */
@@ -558,7 +560,7 @@ static void add_logsys_config_notification(void)
 	icmap_track_t icmap_track = NULL;
 
 	icmap_track_add("logging.",
-			ICMAP_TRACK_ADD | ICMAP_TRACK_DELETE | ICMAP_TRACK_MODIFY | ICMAP_TRACK_PREFIX,
+			ICMAP_TRACK_ADD | ICMAP_TRACK_DELETE | ICMAP_TRACK_MODIFY | ICMAP_TRACK_RELOAD | ICMAP_TRACK_PREFIX,
 			main_logging_notify,
 			NULL,
 			&icmap_track);
