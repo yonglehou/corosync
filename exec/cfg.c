@@ -645,26 +645,27 @@ static void message_handler_req_exec_cfg_reload_config (
 		goto reload_return;
 	}
 
-	// TODO: Send RELOAD_START notification (via icmap)
+	/* Tell interested listeners that we have started a reload */
+	icmap_set_uint8("config.reload_in_progress", 1);
 
 	/* Detect deleted entries and remove them from icmap */
-	remove_deleted_entries(temp_map, "totem.");
-	remove_deleted_entries(temp_map, "logging.");
-	remove_deleted_entries(temp_map, "quorum.");
-	remove_deleted_entries(temp_map, "nodelist.");
-	// CC: More ?
+	remove_deleted_entries(temp_map, NULL);
 
 	/*
 	 * Copy new keys into live config
-	 * If this fails we have a partially loaded config because some keys (above) might have
-	 * been reset to defaults!
+	 * If this fails we have a partially loaded config because some keys (above) might
+	 * have been reset to defaults - I'm not sure what to do here. We might have to die.
 	 */
 	if ( (res = icmap_copy_map(icmap_get_global_map(), temp_map)) != CS_OK) {
 		log_printf (LOGSYS_LEVEL_ERROR, "Error making new config live\n");
 		/* Don't skip sending RELOAD_END, clients will be expecting it */
 	}
 
-	// TODO:  Send RELOAD_END notification (via icmap)
+	/* All done - let clients know */
+	icmap_set_uint8("config.reload_in_progress", 0);
+
+	/* Finished with the temporary storage */
+	icmap_fini_r(temp_map);
 
 reload_return:
 	/* All done, return result to the caller if it was on this system */
