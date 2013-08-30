@@ -162,10 +162,6 @@ static void message_handler_req_lib_cfg_reload_config (
 	void *conn,
 	const void *msg);
 
-static void message_handler_req_lib_cfg_reload_config (
-	void *conn,
-	const void *msg);
-
 /*
  * Service Handler Definition
  */
@@ -608,6 +604,8 @@ static void remove_deleted_entries(icmap_map_t temp_map, const char *prefix)
 			old_key = icmap_iter_next(old_iter, NULL, NULL);
 		}
 	}
+	icmap_iter_finalize(new_iter);
+	icmap_iter_finalize(old_iter);
 }
 
 /*
@@ -628,15 +626,15 @@ static void message_handler_req_exec_cfg_reload_config (
 	log_printf(LOGSYS_LEVEL_NOTICE, "Config reload requested by node %d", nodeid);
 
 	/*
-	 * Set up a new hastable for icmap and read (via coroparse into that)
+	 * Set up a new hastable as a staging area.
 	 */
 	if ((res = icmap_init_r(&temp_map)) != CS_OK) {
 		log_printf(LOGSYS_LEVEL_ERROR, "Unable to create temporary icmap. config file reload cancelled\n");
-		goto reload_return;
+		goto reload_fini;
 	}
 
 	/*
-	 * Load new config into a temporary map
+	 * Load new config into the temporary map
 	 */
 	res = coroparse_configparse(temp_map, &error_string);
 	if (res == -1) {
@@ -648,22 +646,22 @@ static void message_handler_req_exec_cfg_reload_config (
 	/* Tell interested listeners that we have started a reload */
 	icmap_set_uint8("config.reload_in_progress", 1);
 
-	/* Detect deleted entries and remove them from icmap */
+	/* Detect deleted entries and remove them from the main icmap hashtable */
 	remove_deleted_entries(temp_map, NULL);
 
 	/*
-	 * Copy new keys into live config
+	 * Copy new keys into live config.
 	 * If this fails we have a partially loaded config because some keys (above) might
 	 * have been reset to defaults - I'm not sure what to do here. We might have to die.
 	 */
 	if ( (res = icmap_copy_map(icmap_get_global_map(), temp_map)) != CS_OK) {
-		log_printf (LOGSYS_LEVEL_ERROR, "Error making new config live\n");
-		/* Don't skip sending RELOAD_END, clients will be expecting it */
+		log_printf (LOGSYS_LEVEL_ERROR, "Error making new config live. cmap database may be inconsistent\n");
 	}
 
 	/* All done - let clients know */
 	icmap_set_uint8("config.reload_in_progress", 0);
 
+reload_fini:
 	/* Finished with the temporary storage */
 	icmap_fini_r(temp_map);
 
@@ -676,6 +674,7 @@ reload_return:
 		api->ipc_response_send(req_exec_cfg_reload_config->source.conn,
 				       &res_lib_cfg_reload_config,
 				       sizeof(res_lib_cfg_reload_config));
+		api->ipc_refcnt_dec(req_exec_cfg_reload_config->source.conn);;
 	}
 
 	LEAVE();
