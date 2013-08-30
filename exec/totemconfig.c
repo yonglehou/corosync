@@ -1036,31 +1036,14 @@ int totem_config_validate (
 		totem_config->net_mtu = 1500;
 	}
 
-	if ((MESSAGE_QUEUE_MAX) < totem_config->max_messages) {
-		snprintf (local_error_reason, sizeof(local_error_reason),
-			"The max_messages parameter (%d messages) may not be greater then (%d messages).",
-			totem_config->max_messages, MESSAGE_QUEUE_MAX);
-		goto parse_error;
-	}
-
-	if (totem_config->threads > SEND_THREADS_MAX) {
-		totem_config->threads = SEND_THREADS_MAX;
-	}
-	if (totem_config->net_mtu > FRAME_SIZE_MAX) {
-		error_reason = "This net_mtu parameter is greater then the maximum frame size";
-		goto parse_error;
-	}
-	if (totem_config->vsf_type == NULL) {
-		totem_config->vsf_type = "none";
-	}
-
-	return (0);
+	return 0;
 
 parse_error:
 	snprintf (error_string_response, sizeof(error_string_response),
 		 "parse error in config: %s\n", error_reason);
 	*error_string = error_string_response;
 	return (-1);
+
 }
 
 static int read_keyfile (

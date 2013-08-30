@@ -64,6 +64,7 @@
 #include <corosync/corodefs.h>
 
 #include "service.h"
+#include "main.h"
 
 LOGSYS_DECLARE_SUBSYS ("CFG");
 
@@ -154,10 +155,6 @@ static void message_handler_req_lib_cfg_get_node_addrs (
 	const void *msg);
 
 static void message_handler_req_lib_cfg_local_get (
-	void *conn,
-	const void *msg);
-
-static void message_handler_req_lib_cfg_reload_config (
 	void *conn,
 	const void *msg);
 
@@ -561,33 +558,31 @@ static int nullcheck_strcmp(const char* left, const char *right)
 	return strcmp(left, right);
 }
 
-static void remove_deleted_entries(icmap_map_t *temp_map, const char *prefix)
+static void remove_deleted_entries(icmap_map_t temp_map, const char *prefix)
 {
-	icmap_iter_t *old_iter;
-	icmap_iter_t *new_iter;
-	char *old_key, *new_key;
-	int more_to_come_old = 1, more_to_come_new = 1;
+	icmap_iter_t old_iter;
+	icmap_iter_t new_iter;
+	const char *old_key, *new_key;
+	int ret;
 
 	old_iter = icmap_iter_init(prefix);
 	new_iter = icmap_iter_init_r(temp_map, prefix);
 
-	old_key = icmap_iter_next(old_iter);
-	new_key = icmap_iter_next_r(temp_map, new_iter);
+	old_key = icmap_iter_next(old_iter, NULL, NULL);
+	new_key = icmap_iter_next(new_iter, NULL, NULL);
 
 	while (old_key || new_key) {
 		ret = nullcheck_strcmp(old_key, new_key);
-		ret = nullcheck_strcmp(old_line, new_line);
-
 		if ((ret < 0 && old_key) || !new_key) {
 			/*
 			 * new_key is greater, a line (or more) has been deleted
 			 * Continue until old is >= new
 			 */
 			do {
-				//printf("DELETED: %s\n", old_key);
+				/* Remove it from icmap */
 				icmap_delete(old_key);
 
-				old_key = icmap_iter_next(old_iter);
+				old_key = icmap_iter_next(old_iter, NULL, NULL);
 				ret = nullcheck_strcmp(old_key, new_key);
 			} while (ret < 0 && old_key);
 		}
@@ -600,16 +595,17 @@ static void remove_deleted_entries(icmap_map_t *temp_map, const char *prefix)
 			 * icmap. That will happen when we copy the values over
 			 */
 			do {
-				//printf("ADDED: %s\n", new_key);
-				new_key = icmap_iter_next_r(temp_map, new_iter);
+				new_key = icmap_iter_next(new_iter, NULL, NULL);
 				ret = nullcheck_strcmp(old_key, new_key);
 			} while (ret > 0 && new_key);
 		}
 		if (ret == 0) {
-			new_key = icmap_iter_next_r(temp_map, new_iter);
-			old_key = icmap_iter_next_r(old_iter);
+			new_key = icmap_iter_next(new_iter, NULL, NULL);
+			old_key = icmap_iter_next(old_iter, NULL, NULL);
 		}
 	}
+	icmap_iter_finalize(new_iter);
+	icmap_iter_finalize(old_iter);
 }
 
 /*
@@ -621,42 +617,64 @@ static void message_handler_req_exec_cfg_reload_config (
 {
 	const struct req_exec_cfg_reload_config *req_exec_cfg_reload_config = message;
 	struct res_lib_cfg_reload_config res_lib_cfg_reload_config;
-	icmap_map_t *temp_map;
+	icmap_map_t temp_map;
+	const char *error_string;
+	int res = CS_OK;
 
 	ENTER();
 
 	log_printf(LOGSYS_LEVEL_NOTICE, "Config reload requested by node %d", nodeid);
 
-	// CC: TODO - the actual reload
-	// Need to set up a new hastable for icmap and read (via coroparse into that)
+	/*
+	 * Set up a new hastable as a staging area.
+	 */
+	if ((res = icmap_init_r(&temp_map)) != CS_OK) {
+		log_printf(LOGSYS_LEVEL_ERROR, "Unable to create temporary icmap. config file reload cancelled\n");
+		goto reload_fini;
+	}
 
-	// TODO: Send RELOAD_START notification (via icmap)
-//	res = coroparse_configparse(temp_map, &error_string);
-//	if (res == -1) {
-//		log_printf (LOGSYS_LEVEL_ERROR, "%s", error_string);
-//		corosync_exit_error (COROSYNC_DONE_MAINCONFIGREAD);
-//	}
+	/*
+	 * Load new config into the temporary map
+	 */
+	res = coroparse_configparse(temp_map, &error_string);
+	if (res == -1) {
+		log_printf (LOGSYS_LEVEL_ERROR, "Unable to reload config file: %s", error_string);
+		res = CS_ERR_LIBRARY;
+		goto reload_return;
+	}
 
-	// Detect deleted entries and remove them from icmap
-	remove_deleted_entries(temp_map, "totem.");
-	remove_deleted_entries(temp_map, "logging.");
-	remove_deleted_entries(temp_map, "quorum.");
-	remove_deleted_entries(temp_map, "nodelist.");
-	// CC: More ?
+	/* Tell interested listeners that we have started a reload */
+	icmap_set_uint8("config.reload_in_progress", 1);
 
-	// TODO: Copy new keys into live config
+	/* Detect deleted entries and remove them from the main icmap hashtable */
+	remove_deleted_entries(temp_map, NULL);
 
-	// TODO:  Send RELOAD_END notification (via icmap)
+	/*
+	 * Copy new keys into live config.
+	 * If this fails we have a partially loaded config because some keys (above) might
+	 * have been reset to defaults - I'm not sure what to do here. We might have to die.
+	 */
+	if ( (res = icmap_copy_map(icmap_get_global_map(), temp_map)) != CS_OK) {
+		log_printf (LOGSYS_LEVEL_ERROR, "Error making new config live. cmap database may be inconsistent\n");
+	}
 
+	/* All done - let clients know */
+	icmap_set_uint8("config.reload_in_progress", 0);
+
+reload_fini:
+	/* Finished with the temporary storage */
+	icmap_fini_r(temp_map);
+
+reload_return:
 	/* All done, return result to the caller if it was on this system */
 	if (nodeid == api->totem_nodeid_get()) {
 		res_lib_cfg_reload_config.header.size = sizeof(res_lib_cfg_reload_config);
 		res_lib_cfg_reload_config.header.id = MESSAGE_RES_CFG_RELOAD_CONFIG;
-		res_lib_cfg_reload_config.header.error = CS_OK;
-
+		res_lib_cfg_reload_config.header.error = res;
 		api->ipc_response_send(req_exec_cfg_reload_config->source.conn,
 				       &res_lib_cfg_reload_config,
 				       sizeof(res_lib_cfg_reload_config));
+		api->ipc_refcnt_dec(req_exec_cfg_reload_config->source.conn);;
 	}
 
 	LEAVE();

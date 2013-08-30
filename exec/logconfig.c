@@ -542,8 +542,22 @@ static void main_logging_notify(
 #endif
 {
 	const char *error_string;
+	static int reload_in_progress = 0;
 
-	//CC: TODO: if we get a RELOAD start then suspend changes until we get a RELOAD stop
+	/* If a full reload happens then suspend updates for individual keys until
+	 * it's all completed
+	 */
+	if (strcmp(key_name, "config.reload_in_progress") == 0) {
+		if (*(uint8_t *)new_val.data == 1) {
+			reload_in_progress = 1;
+		} else {
+			reload_in_progress = 0;
+		}
+	}
+	if (reload_in_progress) {
+		log_printf(LOGSYS_LEVEL_DEBUG, "Ignoring key change, reload in progress. %s\n", key_name);
+		return;
+	}
 
 	/*
 	 * Reload the logsys configuration
@@ -560,7 +574,13 @@ static void add_logsys_config_notification(void)
 	icmap_track_t icmap_track = NULL;
 
 	icmap_track_add("logging.",
-			ICMAP_TRACK_ADD | ICMAP_TRACK_DELETE | ICMAP_TRACK_MODIFY | ICMAP_TRACK_RELOAD | ICMAP_TRACK_PREFIX,
+			ICMAP_TRACK_ADD | ICMAP_TRACK_DELETE | ICMAP_TRACK_MODIFY | ICMAP_TRACK_PREFIX,
+			main_logging_notify,
+			NULL,
+			&icmap_track);
+
+	icmap_track_add("config.reload_in_progress",
+			ICMAP_TRACK_ADD | ICMAP_TRACK_MODIFY,
 			main_logging_notify,
 			NULL,
 			&icmap_track);
@@ -572,6 +592,12 @@ static void add_logsys_config_notification(void)
 
 	cmap_track_add(cmap_handle, "logging.",
 			CMAP_TRACK_ADD | CMAP_TRACK_DELETE | CMAP_TRACK_MODIFY | CMAP_TRACK_PREFIX,
+			main_logging_notify,
+			NULL,
+			&cmap_track);
+
+	cmap_track_add(cmap_handle, "config.reload_in_progress",
+			CMAP_TRACK_ADD | CMAP_TRACK_MODIFY,
 			main_logging_notify,
 			NULL,
 			&cmap_track);
