@@ -1164,6 +1164,14 @@ static void totem_change_notify(
 {
 	uint32_t *param;
 	const char *error_string;
+	uint8_t reloading;
+
+	/*
+	 * If a full reload is in progress then don't do anything until we have everything and
+	 * can reconfigure it all atomically
+	 */
+	if (icmap_get_uint8("config.reload_in_progress", &reloading) == CS_OK && reloading)
+		return;
 
 	param = totem_get_param_by_name((struct totem_config *)user_data, key_name);
 	if (!param)
@@ -1186,6 +1194,32 @@ static void totem_change_notify(
 	}
 }
 
+static void totem_reload_notify(
+	int32_t event,
+	const char *key_name,
+	struct icmap_notify_value new_val,
+	struct icmap_notify_value old_val,
+	void *user_data)
+{
+	struct totem_config *totem_config = (struct totem_config *)user_data;
+
+	/* Reload has completed */
+	if (*(uint8_t *)new_val.data == 0) {
+		int i, j;
+
+		/* Clear out nodelist so we can put the new one in */
+		for (i=0; i<totem_config->interface_count; i++) {
+			for (j=0; j<PROCESSOR_COUNT_MAX; j++) {
+				memset(&totem_config->interfaces[i].member_list[j], 0, sizeof(struct totem_ip_address));
+			}
+		}
+
+		put_nodelist_members_to_config (totem_config);
+		totem_volatile_config_read (totem_config);
+	}
+
+}
+
 static void add_totem_config_notification(struct totem_config *totem_config)
 {
 	icmap_track_t icmap_track;
@@ -1193,6 +1227,12 @@ static void add_totem_config_notification(struct totem_config *totem_config)
 	icmap_track_add("totem.",
 		ICMAP_TRACK_ADD | ICMAP_TRACK_DELETE | ICMAP_TRACK_MODIFY | ICMAP_TRACK_PREFIX,
 		totem_change_notify,
+		totem_config,
+		&icmap_track);
+
+	icmap_track_add("config.reload_in_progress",
+		ICMAP_TRACK_ADD | ICMAP_TRACK_MODIFY,
+		totem_reload_notify,
 		totem_config,
 		&icmap_track);
 }

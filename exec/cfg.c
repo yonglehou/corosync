@@ -548,12 +548,16 @@ static void message_handler_req_exec_cfg_shutdown (
 	LEAVE();
 }
 
+/* strcmp replacement that can handle NULLs */
 static int nullcheck_strcmp(const char* left, const char *right)
 {
 	if (!left && right)
 		return -1;
 	if (left && ! right)
 		return 1;
+
+	if (!left && !right)
+		return 0;
 
 	return strcmp(left, right);
 }
@@ -579,7 +583,7 @@ static void remove_deleted_entries(icmap_map_t temp_map, const char *prefix)
 			 * Continue until old is >= new
 			 */
 			do {
-				/* Remove it from icmap */
+				/* Remove it from icmap & send notifications */
 				icmap_delete(old_key);
 
 				old_key = icmap_iter_next(old_iter, NULL, NULL);
@@ -647,12 +651,15 @@ static void message_handler_req_exec_cfg_reload_config (
 	icmap_set_uint8("config.reload_in_progress", 1);
 
 	/* Detect deleted entries and remove them from the main icmap hashtable */
-	remove_deleted_entries(temp_map, NULL);
+	remove_deleted_entries(temp_map, "logging.");
+	remove_deleted_entries(temp_map, "totem.");
+	remove_deleted_entries(temp_map, "nodelist.");
+	remove_deleted_entries(temp_map, "quorum.");
 
 	/*
 	 * Copy new keys into live config.
-	 * If this fails we have a partially loaded config because some keys (above) might
-	 * have been reset to defaults - I'm not sure what to do here. We might have to die.
+	 * If this fails we will have a partially loaded config because some keys (above) might
+	 * have been reset to defaults - I'm not sure what to do here, we might have to quit.
 	 */
 	if ( (res = icmap_copy_map(icmap_get_global_map(), temp_map)) != CS_OK) {
 		log_printf (LOGSYS_LEVEL_ERROR, "Error making new config live. cmap database may be inconsistent\n");
