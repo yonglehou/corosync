@@ -1217,7 +1217,6 @@ static void totem_reload_notify(
 		put_nodelist_members_to_config (totem_config);
 		totem_volatile_config_read (totem_config);
 	}
-
 }
 
 static void add_totem_config_notification(struct totem_config *totem_config)
