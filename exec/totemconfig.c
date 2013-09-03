@@ -1202,6 +1202,7 @@ static void totem_reload_notify(
 	void *user_data)
 {
 	struct totem_config *totem_config = (struct totem_config *)user_data;
+	uint32_t local_node_pos;
 
 	/* Reload has completed */
 	if (*(uint8_t *)new_val.data == 0) {
@@ -1216,6 +1217,12 @@ static void totem_reload_notify(
 
 		put_nodelist_members_to_config (totem_config);
 		totem_volatile_config_read (totem_config);
+
+		/* Reinstate the local_node_pos */
+		local_node_pos = find_local_node_in_nodelist(totem_config);
+		if (local_node_pos != -1) {
+			icmap_set_uint32("nodelist.local_node_pos", local_node_pos);
+		}
 	}
 }
 
