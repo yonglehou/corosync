@@ -1194,8 +1194,6 @@ static void votequorum_refresh_config(
 	old_votes = us->votes;
 	old_expected_votes = us->expected_votes;
 
-	// CC: TODO: Deal with deleted nodes
-
 	/*
 	 * Reload the configuration
 	 */
