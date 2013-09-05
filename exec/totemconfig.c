@@ -1167,7 +1167,7 @@ static void totem_change_notify(
 	uint8_t reloading;
 
 	/*
-	 * If a full reload is in progress then don't do anything until we have everything and
+	 * If a full reload is in progress then don't do anything until it's done and
 	 * can reconfigure it all atomically
 	 */
 	if (icmap_get_uint8("config.reload_in_progress", &reloading) == CS_OK && reloading)
@@ -1180,7 +1180,8 @@ static void totem_change_notify(
 	switch (event)
 	{
 	case QB_MAP_NOTIFY_DELETED:
-		*param = 0;
+		if (new_val.type == ICMAP_VALUETYPE_UINT32)
+			*param = 0;
 		totem_set_volatile_defaults((struct totem_config *)user_data, &error_string);
 		break;
 	case QB_MAP_NOTIFY_REPLACED:
@@ -1208,7 +1209,7 @@ static void totem_reload_notify(
 	if (*(uint8_t *)new_val.data == 0) {
 		int i, j;
 
-		/* Clear out nodelist so we can put the new one in */
+		/* Clear out udpu nodelist so we can put the new one in if neede */
 		for (i=0; i<totem_config->interface_count; i++) {
 			for (j=0; j<PROCESSOR_COUNT_MAX; j++) {
 				memset(&totem_config->interfaces[i].member_list[j], 0, sizeof(struct totem_ip_address));
