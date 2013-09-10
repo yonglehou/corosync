@@ -563,6 +563,50 @@ static int nullcheck_strcmp(const char* left, const char *right)
 }
 
 /*
+ * If a key has changed value in the new file, then warn the user and remove it from the temp_map
+ */
+static void delete_and_notify_if_changed(icmap_map_t temp_map, const char *key_name)
+{
+	icmap_value_types_t new_value_type, old_value_type;
+	void *new_value, *old_value;
+
+	if (!(icmap_key_value_eq(temp_map, key_name, icmap_get_global_map(), key_name))) {
+		if (icmap_delete_r(temp_map, key_name) == CS_OK) {
+			log_printf(LOGSYS_LEVEL_NOTICE, "Modified entry '%s' in corosync.conf cannot be changed at run-time", key_name);
+		}
+	}
+}
+/*
+ * Remove any keys from the new config file that in the new corosync.conf but that
+ * cannot be changed at run time. A log message will be issued for each
+ * entry that the user wants to change but they cannot.
+ *
+ * Add more here as needed.
+ */
+static void remove_ro_entries(icmap_map_t temp_map)
+{
+	delete_and_notify_if_changed(temp_map, "totem.secauth");
+	delete_and_notify_if_changed(temp_map, "totem.crypto_hash");
+	delete_and_notify_if_changed(temp_map, "totem.crypto_cipher");
+	delete_and_notify_if_changed(temp_map, "totem.version");
+	delete_and_notify_if_changed(temp_map, "totem.threads");
+	delete_and_notify_if_changed(temp_map, "totem.ip_version");
+	delete_and_notify_if_changed(temp_map, "totem.rrp_mode");
+	delete_and_notify_if_changed(temp_map, "totem.netmtu");
+	delete_and_notify_if_changed(temp_map, "totem.interface.ringnumber");
+	delete_and_notify_if_changed(temp_map, "totem.interface.bindnetaddr");
+	delete_and_notify_if_changed(temp_map, "totem.interface.mcastaddr");
+	delete_and_notify_if_changed(temp_map, "totem.interface.broadcast");
+	delete_and_notify_if_changed(temp_map, "totem.interface.mcastport");
+	delete_and_notify_if_changed(temp_map, "totem.interface.ttl");
+	delete_and_notify_if_changed(temp_map, "totem.vsftype");
+	delete_and_notify_if_changed(temp_map, "totem.transport");
+	delete_and_notify_if_changed(temp_map, "totem.cluster_name");
+	delete_and_notify_if_changed(temp_map, "quorum.provider");
+	delete_and_notify_if_changed(temp_map, "qb.ipc_type");
+}
+
+/*
  * Remove entries that exist in the global map, but not in the temp_map, this will
  * cause delete notifications to be sent to any listeners.
  *
@@ -637,7 +681,7 @@ static void message_handler_req_exec_cfg_reload_config (
 	log_printf(LOGSYS_LEVEL_NOTICE, "Config reload requested by node %d", nodeid);
 
 	/*
-	 * Set up a new hastable as a staging area.
+	 * Set up a new hashtable as a staging area.
 	 */
 	if ((res = icmap_init_r(&temp_map)) != CS_OK) {
 		log_printf(LOGSYS_LEVEL_ERROR, "Unable to create temporary icmap. config file reload cancelled\n");

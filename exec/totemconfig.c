@@ -1184,8 +1184,8 @@ static void totem_change_notify(
 			*param = 0;
 		totem_set_volatile_defaults((struct totem_config *)user_data, &error_string);
 		break;
-	case ICMAP_TRACK_REPLACE:
-	case ICMAP_TRACK_INSERT:
+	case ICMAP_TRACK_ADD:
+	case ICMAP_TRACK_MODIFY:
 		if (new_val.type == ICMAP_VALUETYPE_UINT32)
 			memcpy(param, new_val.data, new_val.len);
 		/* Other value types not supported, or needed (yet) */
