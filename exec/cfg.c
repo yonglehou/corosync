@@ -567,9 +567,6 @@ static int nullcheck_strcmp(const char* left, const char *right)
  */
 static void delete_and_notify_if_changed(icmap_map_t temp_map, const char *key_name)
 {
-	icmap_value_types_t new_value_type, old_value_type;
-	void *new_value, *old_value;
-
 	if (!(icmap_key_value_eq(temp_map, key_name, icmap_get_global_map(), key_name))) {
 		if (icmap_delete_r(temp_map, key_name) == CS_OK) {
 			log_printf(LOGSYS_LEVEL_NOTICE, "Modified entry '%s' in corosync.conf cannot be changed at run-time", key_name);
@@ -706,6 +703,9 @@ static void message_handler_req_exec_cfg_reload_config (
 	remove_deleted_entries(temp_map, "totem.");
 	remove_deleted_entries(temp_map, "nodelist.");
 	remove_deleted_entries(temp_map, "quorum.");
+
+	/* Remove entries that cannot be changed */
+	remove_ro_entries(temp_map);
 
 	/*
 	 * Copy new keys into live config.
