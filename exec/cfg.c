@@ -213,7 +213,7 @@ static struct corosync_exec_handler cfg_exec_engine[] =
 	{ /* 2 */
 		.exec_handler_fn = message_handler_req_exec_cfg_shutdown,
 	},
-	{ /* 4 */
+	{ /* 3 */
 		.exec_handler_fn = message_handler_req_exec_cfg_reload_config,
 	}
 };
@@ -250,7 +250,7 @@ struct req_exec_cfg_ringreenable {
 
 struct req_exec_cfg_reload_config {
 	struct qb_ipc_request_header header __attribute__((aligned(8)));
-        mar_message_source_t source __attribute__((aligned(8)));
+	mar_message_source_t source __attribute__((aligned(8)));
 };
 
 struct req_exec_cfg_killnode {
@@ -562,6 +562,13 @@ static int nullcheck_strcmp(const char* left, const char *right)
 	return strcmp(left, right);
 }
 
+/*
+ * Remove entries that exist in the global map, but not in the temp_map, this will
+ * cause delete notifications to be sent to any listeners.
+ *
+ * NOTE: This routine depends entirely on the keys returned by the iterators
+ * being in alpha-sorted order.
+ */
 static void remove_deleted_entries(icmap_map_t temp_map, const char *prefix)
 {
 	icmap_iter_t old_iter;
