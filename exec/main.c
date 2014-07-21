@@ -1309,6 +1309,10 @@ int main (int argc, char **argv, char **envp)
 		corosync_exit_error (COROSYNC_DONE_DIR_NOT_PRESENT);
 	}
 
+#ifdef	HAVE_KNET
+	/* knet init goes here. interfaces must be ready before totem starts */
+#endif
+
 	res = totem_config_read (&totem_config, &error_string, &totem_config_warnings);
 	if (res == -1) {
 		log_printf (LOGSYS_LEVEL_ERROR, "%s", error_string);
