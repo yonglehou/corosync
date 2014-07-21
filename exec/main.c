@@ -120,6 +120,7 @@
 #include "apidef.h"
 #include "service.h"
 #include "schedwrk.h"
+#include "knet.h"
 
 #ifdef HAVE_SMALL_MEMORY_FOOTPRINT
 #define IPC_LOGSYS_SIZE			1024*64
@@ -1311,6 +1312,13 @@ int main (int argc, char **argv, char **envp)
 
 #ifdef	HAVE_KNET
 	/* knet init goes here. interfaces must be ready before totem starts */
+	log_printf (LOGSYS_LEVEL_DEBUG, "Starting knet");
+	res = knet_init (&error_string);
+	if (res == -1) {
+		log_printf (LOGSYS_LEVEL_ERROR, "%s", error_string);
+		corosync_exit_error (COROSYNC_DONE_MAINCONFIGREAD);
+	}
+	log_printf (LOGSYS_LEVEL_DEBUG, "knet started");
 #endif
 
 	res = totem_config_read (&totem_config, &error_string, &totem_config_warnings);
@@ -1460,6 +1468,16 @@ int main (int argc, char **argv, char **envp)
 	 * free the loop resources
 	 */
 	qb_loop_destroy (corosync_poll_handle);
+
+#ifdef HAVE_KNET
+	log_printf (LOGSYS_LEVEL_DEBUG, "Stopping knet");
+	res = knet_fini (&error_string);
+	if (res == -1) {
+		log_printf (LOGSYS_LEVEL_ERROR, "%s", error_string);
+		corosync_exit_error (COROSYNC_DONE_MAINCONFIGREAD);
+	}
+	log_printf (LOGSYS_LEVEL_DEBUG, "knet stopped");
+#endif
 
 	/*
 	 * free up the icmap 

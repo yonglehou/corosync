@@ -46,3 +46,19 @@
 #include "knet.h"
 
 LOGSYS_DECLARE_SUBSYS ("KNET");
+
+int knet_init(
+	const char **error_string)
+{
+	int res = 0;
+
+	return res;
+}
+
+int knet_fini(
+	const char **error_string)
+{
+	int res = 0;
+
+	return res;
+}
