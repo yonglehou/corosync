@@ -48,9 +48,12 @@
 LOGSYS_DECLARE_SUBSYS ("KNET");
 
 int knet_init(
+	unsigned int node_id,
 	const char **error_string)
 {
 	int res = 0;
+
+	log_printf (LOGSYS_LEVEL_DEBUG, "Init knet for node: %u", node_id);
 
 	return res;
 }

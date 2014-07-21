@@ -36,6 +36,7 @@
 #define KNET_H_DEFINED
 
 extern int knet_init(
+	unsigned int node_id,
 	const char **error_string);
 
 extern int knet_fini(
