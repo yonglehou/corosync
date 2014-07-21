@@ -382,6 +382,11 @@ AC_ARG_ENABLE([qdevices],
 	[ enable_qdevices="no" ])
 AM_CONDITIONAL(BUILD_QDEVICES, test x$enable_qdevices = xyes)
 
+AC_ARG_ENABLE([knet],
+	[  --enable-knet                   : kronosnet support ],,
+	[ enable_knet="no" ])
+AM_CONDITIONAL(BUILD_KNET, test x$enable_knet = xyes)
+
 # *FLAGS handling goes here
 
 ENV_CFLAGS="$CFLAGS"
@@ -461,6 +466,13 @@ if test "x${enable_xmlconf}" = xyes; then
 fi
 if test "x${enable_qdevices}" = xyes; then
 	PACKAGE_FEATURES="$PACKAGE_FEATURES qdevices"
+fi
+if test "x${enable_knet}" = xyes; then
+	PKG_CHECK_MODULES([libtap], [libtap])
+	PKG_CHECK_MODULES([libknet], [libknet])
+	AC_DEFINE_UNQUOTED([HAVE_KNET], 1, [have knet])
+	PACKAGE_FEATURES="$PACKAGE_FEATURES knet"
+	WITH_LIST="$WITH_LIST --with knet"
 fi
 
 do_snmp=0
