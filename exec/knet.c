@@ -377,6 +377,17 @@ static int knet_engine_init(void)
 	 * dyamic config goes here for reload
 	 */
 
+	log_printf(LOGSYS_LEVEL_DEBUG,
+		   "Enabling tap knet engine traffic forwarding");
+	if (knet_handle_setfwd(knet_h, 1) < 0) {
+		log_printf(LOGSYS_LEVEL_ERROR,
+			  "Unable to start traffic forwarding, error: %s",
+			  strerror(errno));
+		return -1;	
+	}
+	log_printf(LOGSYS_LEVEL_DEBUG,
+		   "tap knet engine traffic forwarding enabled");
+
 	return 0;
 }
 
