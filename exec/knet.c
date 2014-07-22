@@ -80,6 +80,7 @@ static int knet_log_thread_started = 0;
  * knet global bits
  */
 static uint16_t knet_baseport = 60000; /* hardcode default? make it a define? */
+static knet_handle_t knet_h = NULL;
 
 /*
  * those are config values that CANNOT be changed at runtime
@@ -353,11 +354,28 @@ static int knet_log_init(void)
 
 static int knet_engine_init(void)
 {
+	uint16_t host_id = node_id;
+
 	log_printf(LOGSYS_LEVEL_DEBUG, "Creating knet logging thread");
 	if (knet_log_init() < 0) {
 		log_printf(LOGSYS_LEVEL_ERROR, "Unable to create knet logging thread");
 		return -1;
 	}
+
+	log_printf(LOGSYS_LEVEL_DEBUG, "Creating knet engine handle");
+	knet_h = knet_handle_new(host_id, tap_fd, knet_logfd[1], KNET_LOG_DEBUG);
+	if (!knet_h) {
+		log_printf(LOGSYS_LEVEL_ERROR,
+			   "Unable to create knet engine handle, error: %s",
+			   strerror(errno));
+		return -1;
+	}
+	log_printf(LOGSYS_LEVEL_DEBUG, "knet engine handle created");
+
+
+	/*
+	 * dyamic config goes here for reload
+	 */
 
 	return 0;
 }
@@ -402,6 +420,12 @@ int knet_init(const char **error_string)
 
 int knet_fini(const char **error_string)
 {
+	if (knet_h) {
+		log_printf(LOGSYS_LEVEL_DEBUG, "Destroying knet engine");
+		knet_handle_free(knet_h);
+		log_printf(LOGSYS_LEVEL_DEBUG, "knet engine destroyed");
+	}
+
 	if (knet_log_thread_started) {
 		pthread_cancel(knet_logging_thread);
 		close(knet_logfd[0]);
