@@ -93,6 +93,9 @@ enum main_cp_cb_data_state {
 	MAIN_CP_CB_DATA_STATE_NODELIST_NODE,
 	MAIN_CP_CB_DATA_STATE_PLOAD,
 	MAIN_CP_CB_DATA_STATE_QB
+#ifdef HAVE_KNET
+	,MAIN_CP_CB_DATA_STATE_KNET
+#endif
 };
 
 struct key_value_list_item {
@@ -575,6 +578,18 @@ static int main_config_parser_cb(const char *path,
 				add_as_string = 0;
 			}
 			break;
+#ifdef HAVE_KNET
+		case MAIN_CP_CB_DATA_STATE_KNET:
+			if ((strcmp(path, "knet.baseport") == 0)) {
+				val_type = ICMAP_VALUETYPE_UINT16;
+				if (safe_atoq(value, &val, val_type) != 0) {
+					goto atoi_error;
+				}
+				icmap_set_uint16_r(config_map, path, val);
+				add_as_string = 0;
+			}
+			break;
+#endif
 		case MAIN_CP_CB_DATA_STATE_TOTEM:
 			if ((strcmp(path, "totem.version") == 0) ||
 			    (strcmp(path, "totem.nodeid") == 0) ||
@@ -906,6 +921,11 @@ static int main_config_parser_cb(const char *path,
 			data->state = MAIN_CP_CB_DATA_STATE_NODELIST_NODE;
 			data->ring0_addr_added = 0;
 		}
+#ifdef HAVE_KNET
+		if (strcmp(path, "knet") == 0) {
+			data->state = MAIN_CP_CB_DATA_STATE_KNET;
+		}
+#endif
 		break;
 	case PARSER_CB_SECTION_END:
 		switch (data->state) {
@@ -1106,6 +1126,11 @@ static int main_config_parser_cb(const char *path,
 			data->node_number++;
 			data->state = MAIN_CP_CB_DATA_STATE_NODELIST;
 			break;
+#ifdef HAVE_KNET
+		case MAIN_CP_CB_DATA_STATE_KNET:
+			data->state = MAIN_CP_CB_DATA_STATE_NORMAL;
+			break;
+#endif
 		}
 		break;
 	}
