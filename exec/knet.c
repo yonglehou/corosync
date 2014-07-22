@@ -46,6 +46,9 @@
 #include <corosync/icmap.h>
 
 #include <net/if.h>
+#include <sys/types.h>
+#include <unistd.h>
+#include <fcntl.h>
 
 #include "knet.h"
 
@@ -65,6 +68,13 @@ static tap_t tap = NULL;
 static char tap_name[2*IFNAMSIZ];
 static size_t tap_name_size = IFNAMSIZ;
 static int tap_fd = 0;
+
+/*
+ * global knet logging
+ */
+pthread_t knet_logging_thread;
+static int knet_logfd[2];
+static int knet_log_thread_started = 0;
 
 /*
  * knet global bits
@@ -206,6 +216,153 @@ static int tap_init(void)
 	return tap_get_fd(tap);
 }
 
+static int _fdset_cloexec(int fd)
+{
+	int fdflags;
+
+	fdflags = fcntl(fd, F_GETFD, 0);
+	if (fdflags < 0)
+		return -1;
+
+	fdflags |= FD_CLOEXEC;
+
+	if (fcntl(fd, F_SETFD, fdflags) < 0)
+		return -1;
+
+	return 0;
+}
+
+static int _fdset_nonblock(int fd)
+{
+	int fdflags;
+
+	fdflags = fcntl(fd, F_GETFL, 0);
+	if (fdflags < 0)
+		return -1;
+
+	fdflags |= O_NONBLOCK;
+
+	if (fcntl(fd, F_SETFL, fdflags) < 0)
+		return -1;
+
+	return 0;
+}
+
+static void *_handle_logging_thread(void *data)
+{
+	int logfd;
+	int se_result = 0;
+	fd_set rfds;
+	struct timeval tv;
+
+	memcpy(&logfd, data, sizeof(int));
+
+	while (se_result >= 0){
+		FD_ZERO (&rfds);
+		FD_SET (logfd, &rfds);
+
+		tv.tv_sec = 1;
+		tv.tv_usec = 0;
+
+		se_result = select(FD_SETSIZE, &rfds, 0, 0, &tv);
+
+		if (se_result == -1)
+			goto out;
+
+		if (se_result == 0)
+			continue;
+
+		if (FD_ISSET(logfd, &rfds))  {
+			struct knet_log_msg msg;
+			size_t bytes_read = 0;
+			size_t len;
+
+			while (bytes_read < sizeof(struct knet_log_msg)) {
+				len = read(logfd, &msg + bytes_read,
+					   sizeof(struct knet_log_msg) - bytes_read);
+				if (len <= 0) {
+					break;
+				}
+				bytes_read += len;
+			}
+
+			if (bytes_read != sizeof(struct knet_log_msg))
+				continue;
+
+			switch(msg.msglevel) {
+				case KNET_LOG_WARN:
+					log_printf(LOGSYS_LEVEL_WARNING, "(%s) %s",
+						   knet_log_get_subsystem_name(msg.subsystem), msg.msg);
+					break;
+				case KNET_LOG_INFO:
+					log_printf(LOGSYS_LEVEL_INFO, "(%s) %s",
+						   knet_log_get_subsystem_name(msg.subsystem), msg.msg);
+					break;
+				case KNET_LOG_DEBUG:
+					log_printf(LOGSYS_LEVEL_DEBUG, "(%s) %s",
+						   knet_log_get_subsystem_name(msg.subsystem), msg.msg);
+					break;
+				case KNET_LOG_ERR:
+				default:
+					log_printf(LOGSYS_LEVEL_ERROR, "(%s) %s",
+						   knet_log_get_subsystem_name(msg.subsystem), msg.msg);
+			}
+		}
+	}
+
+out:
+	return NULL;
+}
+
+static int knet_log_init(void)
+{
+	int res = 0;
+
+	if (pipe(knet_logfd)) {
+		log_printf(LOGSYS_LEVEL_ERROR,
+			   "Unable to create knet logging pipe, error: %s",
+			   strerror(errno));
+		return -1;
+	}
+
+	if ((_fdset_cloexec(knet_logfd[0])) ||
+	    (_fdset_nonblock(knet_logfd[0])) ||
+	    (_fdset_cloexec(knet_logfd[1])) ||
+	    (_fdset_nonblock(knet_logfd[1]))) {
+		log_printf(LOGSYS_LEVEL_ERROR,
+			   "Unable to set FD_CLOEXEX / O_NONBLOCK on knet logfd pipe, error %s",
+			   strerror(errno));
+		return -1;
+	}
+
+	res = pthread_create(&knet_logging_thread,
+			     NULL, _handle_logging_thread,
+			     (void *)&knet_logfd[0]);
+
+	if (res) {
+		log_printf(LOGSYS_LEVEL_ERROR,
+			   "Unable to create knet logging thread, error: %s",
+			   strerror(res));
+		return -1;
+	}
+
+	knet_log_thread_started = 1;
+
+	return 0;
+}
+
+static int knet_engine_init(void)
+{
+	log_printf(LOGSYS_LEVEL_DEBUG, "Creating knet logging thread");
+	if (knet_log_init() < 0) {
+		log_printf(LOGSYS_LEVEL_ERROR, "Unable to create knet logging thread");
+		return -1;
+	}
+
+	return 0;
+}
+
+
 int knet_init(const char **error_string)
 {
 	if (knet_read_config() < 0) {
@@ -233,11 +390,24 @@ int knet_init(const char **error_string)
 	}
 	log_printf(LOGSYS_LEVEL_DEBUG, "local tap device initialization completed");
 
+	log_printf(LOGSYS_LEVEL_DEBUG, "Initializing knet engine");
+	if (knet_engine_init() < 0) {
+		*error_string = "Unable to init knet engine";
+		return -1;
+	}
+	log_printf(LOGSYS_LEVEL_DEBUG, "knet engine initialization completed");
+
 	return 0;
 }
 
 int knet_fini(const char **error_string)
 {
+	if (knet_log_thread_started) {
+		pthread_cancel(knet_logging_thread);
+		close(knet_logfd[0]);
+		close(knet_logfd[1]);
+	}
+
 	if (tap) {
 		log_printf(LOGSYS_LEVEL_DEBUG, "Destroying local tap device");
 		tap_close(tap);
