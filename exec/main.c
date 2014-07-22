@@ -1371,13 +1371,11 @@ int main (int argc, char **argv, char **envp)
 	/*
 	 * knet init goes here. we need node_id from totemconfig 
 	 */
-	log_printf (LOGSYS_LEVEL_DEBUG, "Starting knet");
 	res = knet_init (totem_config.node_id, &error_string);
 	if (res == -1) {
 		log_printf (LOGSYS_LEVEL_ERROR, "%s", error_string);
 		corosync_exit_error (COROSYNC_DONE_MAINCONFIGREAD);
 	}
-	log_printf (LOGSYS_LEVEL_DEBUG, "knet started");
 #endif
 
 	/*
@@ -1472,13 +1470,11 @@ int main (int argc, char **argv, char **envp)
 	qb_loop_destroy (corosync_poll_handle);
 
 #ifdef HAVE_KNET
-	log_printf (LOGSYS_LEVEL_DEBUG, "Stopping knet");
 	res = knet_fini (&error_string);
 	if (res == -1) {
 		log_printf (LOGSYS_LEVEL_ERROR, "%s", error_string);
 		corosync_exit_error (COROSYNC_DONE_MAINCONFIGREAD);
 	}
-	log_printf (LOGSYS_LEVEL_DEBUG, "knet stopped");
 #endif
 
 	/*
