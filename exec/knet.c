@@ -37,6 +37,8 @@
 #include <libtap.h>
 #include <libknet.h>
 
+#include "totemconfig.h"
+
 #include <corosync/corotypes.h>
 #include <corosync/corodefs.h>
 #include <corosync/coroapi.h>
@@ -47,21 +49,78 @@
 
 LOGSYS_DECLARE_SUBSYS ("KNET");
 
-int knet_init(
-	unsigned int node_id,
-	const char **error_string)
+/*
+ * global to see if knet is configured or not
+ */
+static int knet_enabled = 0;
+static unsigned int node_id = 0;
+static unsigned int node_pos = -1;
+
+/*
+ * those are config values that CANNOT be changed at runtime
+ * return:
+ * 0 on success
+ * -1 on error
+ */
+static int knet_read_config(void)
 {
-	int res = 0;
+	char *value = NULL;
 
-	log_printf (LOGSYS_LEVEL_DEBUG, "Init knet for node: %u", node_id);
+	if (icmap_get_string("knet.use_knet", &value) == CS_OK) {
+		if ((strcmp (value, "on") == 0) || (strcmp (value, "yes") == 0)) {
+			knet_enabled = 1;
+		}
+		free(value);
+	}
 
-	return res;
+	if (!knet_enabled) {
+		return 0;
+	}
+
+	return 0;
 }
 
-int knet_fini(
-	const char **error_string)
+static int knet_find_nodeid(void)
 {
-	int res = 0;
+	char tmp_key[ICMAP_KEYNAME_MAXLEN];
 
-	return res;
+	if (totem_config_find_local_addr_in_nodelist("knet_ip", &node_pos) == 1) {
+		snprintf(tmp_key, ICMAP_KEYNAME_MAXLEN, "nodelist.node.%u.nodeid", node_pos);
+		if (icmap_get_uint32(tmp_key, &node_id) != CS_OK) {
+			log_printf(LOGSYS_LEVEL_ERROR, "Unable to determine our node_id from nodelist");
+			return -1;
+		}
+	} else {
+		log_printf(LOGSYS_LEVEL_DEBUG, "Unable to find our node in nodelist");
+		return -1;
+	}
+
+	return 0;
+}
+
+int knet_init(const char **error_string)
+{
+	if (knet_read_config() < 0) {
+		*error_string = "Unable to read knet config";
+		return -1;
+	}
+
+	if (!knet_enabled) {
+		log_printf(LOGSYS_LEVEL_DEBUG, "knet not enabled in config file");
+		return 0;
+	} else {
+		log_printf(LOGSYS_LEVEL_INFO, "Initializing knet interface");
+	}
+
+	if (knet_find_nodeid() < 0) {
+		*error_string = "Unable to find our node information";
+		return -1;
+	}
+
+	return 0;
+}
+
+int knet_fini(const char **error_string)
+{
+	return 0;
 }

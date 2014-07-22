@@ -35,11 +35,8 @@
 #ifndef KNET_H_DEFINED
 #define KNET_H_DEFINED
 
-extern int knet_init(
-	unsigned int node_id,
-	const char **error_string);
+extern int knet_init(const char **error_string);
 
-extern int knet_fini(
-	const char **error_string);
+extern int knet_fini(const char **error_string);
 
 #endif /* KNET_H_DEFINED */
