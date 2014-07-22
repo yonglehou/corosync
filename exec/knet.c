@@ -49,6 +49,9 @@
 #include <sys/types.h>
 #include <unistd.h>
 #include <fcntl.h>
+#include <arpa/inet.h>
+#include <netinet/ether.h>
+#include <string.h>
 
 #include "knet.h"
 
@@ -352,6 +355,51 @@ static int knet_log_init(void)
 	return 0;
 }
 
+/*
+ * stole from linux kernel/include/linux/etherdevice.h
+ */
+
+static inline int is_zero_ether_addr(const uint8_t *addr)
+{
+	return !(addr[0] | addr[1] | addr[2] | addr[3] | addr[4] | addr[5]);
+}
+
+static inline int is_multicast_ether_addr(const uint8_t *addr)
+{
+	return 0x01 & addr[0];
+}
+
+static inline int is_broadcast_ether_addr(const uint8_t *addr)
+{
+	return (addr[0] & addr[1] & addr[2] & addr[3] & addr[4] & addr[5]) == 0xff;
+}
+
+static int ether_host_filter_fn (const unsigned char *outdata,
+			  ssize_t outdata_len,
+			  uint16_t src_host_id,
+			  uint16_t *dst_host_ids,
+			  size_t *dst_host_ids_entries)
+{
+	struct ether_header *eth_h = (struct ether_header *)outdata;
+	uint8_t *dst_mac = (uint8_t *)eth_h->ether_dhost;
+	uint16_t dst_host_id;
+
+	if (is_zero_ether_addr(dst_mac))
+		return -1;
+
+	if (is_multicast_ether_addr(dst_mac) ||
+	    is_broadcast_ether_addr(dst_mac)) {
+		return 1;
+	}
+
+	memcpy(&dst_host_id, &dst_mac[4], 2);
+
+	dst_host_ids[0] = ntohs(dst_host_id);
+	*dst_host_ids_entries = 1;
+
+	return 0;
+}
+
 static int knet_engine_init(void)
 {
 	uint16_t host_id = node_id;
@@ -371,6 +419,15 @@ static int knet_engine_init(void)
 		return -1;
 	}
 	log_printf(LOGSYS_LEVEL_DEBUG, "knet engine handle created");
+
+	log_printf(LOGSYS_LEVEL_DEBUG, "Installing knet ethernet packet filter");
+	if (knet_handle_enable_filter(knet_h, ether_host_filter_fn) < 0) {
+		log_printf(LOGSYS_LEVEL_ERROR,
+			  "Unable to install knet ethernet packet filter, error: %s",
+			  strerror(errno));
+		return -1;
+	}
+	log_printf(LOGSYS_LEVEL_DEBUG, "knet ethernet packet filter installed");
 
 
 	/*
