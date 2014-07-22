@@ -45,6 +45,8 @@
 #include <corosync/logsys.h>
 #include <corosync/icmap.h>
 
+#include <net/if.h>
+
 #include "knet.h"
 
 LOGSYS_DECLARE_SUBSYS ("KNET");
@@ -55,6 +57,19 @@ LOGSYS_DECLARE_SUBSYS ("KNET");
 static int knet_enabled = 0;
 static unsigned int node_id = 0;
 static unsigned int node_pos = -1;
+
+/*
+ * global tap data
+ */
+static tap_t tap = NULL;
+static char tap_name[2*IFNAMSIZ];
+static size_t tap_name_size = IFNAMSIZ;
+static int tap_fd = 0;
+
+/*
+ * knet global bits
+ */
+static uint16_t knet_baseport = 60000; /* hardcode default? make it a define? */
 
 /*
  * those are config values that CANNOT be changed at runtime
@@ -75,6 +90,25 @@ static int knet_read_config(void)
 
 	if (!knet_enabled) {
 		return 0;
+	}
+
+	if (icmap_get_uint16("knet.baseport", &knet_baseport) != CS_OK) {
+		log_printf(LOGSYS_LEVEL_ERROR,
+			   "knet baseport has not been specified in corosync.conf");
+		return -1;
+	}
+
+	if (icmap_get_string("knet.ifacename", &value) == CS_OK) {
+		if (strlen(value) >= tap_name_size) {
+			log_printf(LOGSYS_LEVEL_ERROR,
+				   "knet ifacename too long. Max 15 chars allowed");
+			free(value);
+			return -1;
+		}
+		strncpy(tap_name, value, tap_name_size);
+		free(value);
+	} else {
+		strncpy(tap_name, "cluster-net", tap_name_size);
 	}
 
 	return 0;
@@ -98,6 +132,80 @@ static int knet_find_nodeid(void)
 	return 0;
 }
 
+/*
+ * return < 0 on error
+ * tap fd > 0 on success
+ */
+static int tap_init(void)
+{
+	char tap_mac[18];
+	char tap_ip[64];
+	char *error_string = NULL;
+	uint8_t *nodeid = (uint8_t *)&node_id;
+	uint8_t *bport = (uint8_t *)&knet_baseport;
+	char tmp_key[ICMAP_KEYNAME_MAXLEN];
+	char *value = NULL;
+
+	log_printf(LOGSYS_LEVEL_DEBUG, "Opening tap device [%s]", tap_name);
+	tap = tap_open(tap_name, tap_name_size, NULL);
+	if (!tap) {
+		log_printf(LOGSYS_LEVEL_ERROR,
+			   "Unable to initialize tap device [%s], error: %s",
+			   tap_name, strerror(errno));
+		return -1;
+	}
+
+	/*
+ 	 * remember to give it a check re node_id 32bit vs knet node_id 16bit and mac
+ 	 * address generation here
+ 	 */ 
+	snprintf(tap_mac, sizeof(tap_mac) - 1, "54:54:%x:%x:%x:%x",
+		 bport[0], bport[1], nodeid[0], nodeid[1]);
+	log_printf(LOGSYS_LEVEL_DEBUG, "Setting mac [%s] on device [%s]",
+		   tap_mac, tap_name);
+	if (tap_set_mac(tap, tap_mac) < 0) {
+		log_printf(LOGSYS_LEVEL_ERROR,
+			   "Unable to set mac address [%s] on tap device [%s], error: %s",
+			   tap_mac, tap_name, strerror(errno));
+		return -1;
+	}
+
+	snprintf(tmp_key, ICMAP_KEYNAME_MAXLEN, "nodelist.node.%u.ring0_addr", node_pos);
+	if (icmap_get_string(tmp_key, &value) != CS_OK) {
+		log_printf(LOGSYS_LEVEL_ERROR, "Unable to determine our ring0_addr from nodelist");
+		return -1;
+	}
+	strncpy(tap_ip, value, sizeof(tap_ip) - 1);
+	free(value);
+
+	log_printf(LOGSYS_LEVEL_DEBUG, "Adding ip address [%s] on tap device [%s]",
+		   tap_ip, tap_name);
+	if (tap_add_ip(tap, tap_ip, "24", &error_string) < 0) {
+		if (error_string) {
+			log_printf(LOGSYS_LEVEL_ERROR,
+				   "Unable to add ip address [%s] to tap device [%s], error: %s",
+				   tap_ip, tap_name, error_string);
+			free(error_string);
+			error_string = NULL;
+		} else {
+			log_printf(LOGSYS_LEVEL_ERROR,
+				   "Unable to add ip address [%s] to tap device [%s], error: %s",
+				   tap_ip, tap_name, strerror(errno));
+		}
+		return -1;
+	}
+
+	log_printf(LOGSYS_LEVEL_DEBUG, "Setting tap device [%s] up", tap_name);
+	if (tap_set_up(tap, NULL, NULL) < 0) {
+		log_printf(LOGSYS_LEVEL_ERROR,
+			   "Unable to set tap device [%s] up, error: %s",
+			   tap_name, strerror(errno));
+		return -1;
+	}
+
+	return tap_get_fd(tap);
+}
+
 int knet_init(const char **error_string)
 {
 	if (knet_read_config() < 0) {
@@ -117,10 +225,24 @@ int knet_init(const char **error_string)
 		return -1;
 	}
 
+	log_printf(LOGSYS_LEVEL_DEBUG, "Initializing local tap interface");
+	tap_fd = tap_init();
+	if (tap_fd < 1) {
+		*error_string = "Unable to init tap device";
+		return -1;
+	}
+	log_printf(LOGSYS_LEVEL_DEBUG, "local tap device initialization completed");
+
 	return 0;
 }
 
 int knet_fini(const char **error_string)
 {
+	if (tap) {
+		log_printf(LOGSYS_LEVEL_DEBUG, "Destroying local tap device");
+		tap_close(tap);
+		log_printf(LOGSYS_LEVEL_DEBUG, "local tap device destroyed");
+	}
+
 	return 0;
 }
