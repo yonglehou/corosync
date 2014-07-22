@@ -1367,8 +1367,10 @@ int main (int argc, char **argv, char **envp)
 	totem_config.totem_logging_configuration.log_printf = _logsys_log_printf;
 	logsys_config_apply();
 
-#ifdef	HAVE_KNET
-	/* knet init goes here. interfaces must be ready before totem starts */
+#ifdef HAVE_KNET
+	/*
+	 * knet init goes here. we need node_id from totemconfig 
+	 */
 	log_printf (LOGSYS_LEVEL_DEBUG, "Starting knet");
 	res = knet_init (totem_config.node_id, &error_string);
 	if (res == -1) {
