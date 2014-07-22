@@ -77,8 +77,16 @@ corosync_CPPFLAGS	= -DLOGCONFIG_USE_ICMAP=1
 
 corosync_CFLAGS         = $(statgrab_CFLAGS)
 
+if BUILD_KNET
+corosync_CFLAGS		+= $(libtap_CFLAGS) $(libknet_CFLAGS)
+endif
+
 corosync_LDADD		= libtotem_pg.la ../common_lib/libcorosync_common.la \
 			  $(LIBQB_LIBS) $(statgrab_LIBS)
+
+if BUILD_KNET
+corosync_LDADD		+= $(libtap_LIBS) $(libknet_LIBS)
+endif
 
 corosync_DEPENDENCIES	= libtotem_pg.la ../common_lib/libcorosync_common.la
 
