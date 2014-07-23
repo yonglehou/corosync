@@ -1318,7 +1318,7 @@ int main (int argc, char **argv, char **envp)
 	/*
 	 * knet init goes here. we need node_id from totemconfig 
 	 */
-	res = knet_init (&error_string);
+	res = knet_init_pre_totem(&error_string);
 	if (res == -1) {
 		log_printf (LOGSYS_LEVEL_ERROR, "%s", error_string);
 		corosync_exit_error (COROSYNC_DONE_MAINCONFIGREAD);
@@ -1416,6 +1416,17 @@ int main (int argc, char **argv, char **envp)
 	if ((flock_err = corosync_flock (corosync_lock_file, getpid ())) != COROSYNC_DONE_EXIT) {
 		corosync_exit_error (flock_err);
 	}
+
+#ifdef HAVE_KNET
+	/*
+	 * knet init goes here. we need node_id from totemconfig 
+	 */
+	res = knet_init_post_background(&error_string);
+	if (res == -1) {
+		log_printf (LOGSYS_LEVEL_ERROR, "%s", error_string);
+		corosync_exit_error (COROSYNC_DONE_MAINCONFIGREAD);
+	}
+#endif
 
 	/*
 	 * if totempg_initialize doesn't have root priveleges, it cannot

@@ -35,7 +35,9 @@
 #ifndef KNET_H_DEFINED
 #define KNET_H_DEFINED
 
-extern int knet_init(const char **error_string);
+extern int knet_init_pre_totem(const char **error_string);
+
+extern int knet_init_post_background(const char **error_string);
 
 extern int knet_fini(const char **error_string);
 

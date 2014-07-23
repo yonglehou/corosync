@@ -692,8 +692,7 @@ static int knet_engine_init(void)
 	return 0;
 }
 
-
-int knet_init(const char **error_string)
+int knet_init_pre_totem(const char **error_string)
 {
 	if (knet_read_config() < 0) {
 		*error_string = "Unable to read knet config";
@@ -720,6 +719,11 @@ int knet_init(const char **error_string)
 	}
 	log_printf(LOGSYS_LEVEL_DEBUG, "local tap device initialization completed");
 
+	return 0;
+}
+
+int knet_init_post_background(const char **error_string)
+{
 	log_printf(LOGSYS_LEVEL_DEBUG, "Initializing knet engine");
 	if (knet_engine_init() < 0) {
 		*error_string = "Unable to init knet engine";
