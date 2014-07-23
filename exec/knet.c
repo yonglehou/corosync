@@ -756,6 +756,11 @@ static int knet_stop(void)
 		int i;
 
 		for (i = 0; i < knet_host_ids_entries; i++) {
+			int x;
+
+			for (x = 0; x < KNET_MAX_LINK; x++) {
+				knet_link_set_enable(knet_h, knet_host_ids[i], x, 0);
+			}
 			knet_host_remove(knet_h, knet_host_ids[i]);
 		}
 	}
