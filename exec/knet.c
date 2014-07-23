@@ -214,6 +214,14 @@ static int tap_init(void)
 		return -1;
 	}
 
+	log_printf(LOGSYS_LEVEL_DEBUG, "Setting tap device [%s] up", tap_name);
+	if (tap_set_up(tap, NULL, NULL) < 0) {
+		log_printf(LOGSYS_LEVEL_ERROR,
+			   "Unable to set tap device [%s] up, error: %s",
+			   tap_name, strerror(errno));
+		return -1;
+	}
+
 	return tap_get_fd(tap);
 }
 
@@ -670,32 +678,20 @@ static int knet_engine_init(void)
 	}
 	log_printf(LOGSYS_LEVEL_DEBUG, "knet remote hosts initialized");
 
-	return 0;
-}
-
-static int knet_tap_bridge(void)
-{
 	log_printf(LOGSYS_LEVEL_DEBUG,
-		   "Enabling knet engine traffic forwarding");
+		   "Enabling tap knet engine traffic forwarding");
 	if (knet_handle_setfwd(knet_h, 1) < 0) {
 		log_printf(LOGSYS_LEVEL_ERROR,
-			  "Unable to knet start traffic forwarding, error: %s",
+			  "Unable to start traffic forwarding, error: %s",
 			  strerror(errno));
 		return -1;	
 	}
 	log_printf(LOGSYS_LEVEL_DEBUG,
-		   "knet engine traffic forwarding enabled");
-
-	log_printf(LOGSYS_LEVEL_DEBUG, "Setting tap device [%s] up", tap_name);
-	if (tap_set_up(tap, NULL, NULL) < 0) {
-		log_printf(LOGSYS_LEVEL_ERROR,
-			   "Unable to set tap device [%s] up, error: %s",
-			   tap_name, strerror(errno));
-		return -1;
-	}
+		   "tap knet engine traffic forwarding enabled");
 
 	return 0;
 }
+
 
 int knet_init(const char **error_string)
 {
@@ -730,15 +726,6 @@ int knet_init(const char **error_string)
 		return -1;
 	}
 	log_printf(LOGSYS_LEVEL_DEBUG, "knet engine initialization completed");
-
-	log_printf(LOGSYS_LEVEL_DEBUG, "Start local tap/knet bridge");
-	if (knet_tap_bridge() < 0) {
-		*error_string = "Unable to start tap/knet bridge";
-		return -1;
-	}
-	log_printf(LOGSYS_LEVEL_DEBUG, "local tap/knet bridge started");
-
-	log_printf(LOGSYS_LEVEL_INFO, "knet interface initialized");
 
 	return 0;
 }
