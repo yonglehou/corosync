@@ -400,6 +400,109 @@ static int ether_host_filter_fn (const unsigned char *outdata,
 	return 0;
 }
 
+static int knet_add_nodes_to_engine(unsigned int new_node_pos)
+{
+	int res = 0;
+	char tmp_key[ICMAP_KEYNAME_MAXLEN];
+	char *value;
+	uint32_t new_node_id = -1;
+	char knet_host_name[KNET_MAX_HOST_LEN];
+	uint16_t knet_host_id;
+
+	snprintf(tmp_key, ICMAP_KEYNAME_MAXLEN, "nodelist.node.%u.nodeid", new_node_pos);
+	if (icmap_get_uint32(tmp_key, &new_node_id) != CS_OK) {
+		log_printf(LOGSYS_LEVEL_ERROR, "Unable to determine node_id from nodelist");
+		return -1;
+	}
+
+	knet_host_id = new_node_id;
+
+	res = knet_host_get_name_by_host_id(knet_h, knet_host_id, knet_host_name);
+	if (res < 0) {
+		log_printf(LOGSYS_LEVEL_ERROR,
+			   "Unable to lookup knet host db, error: %s",
+			   strerror(errno));
+		return -1;
+	}
+	/*
+	 * host not found, create one
+	 */
+	if (res == 0) {
+		if (knet_host_add(knet_h, knet_host_id) < 0) {
+			log_printf(LOGSYS_LEVEL_ERROR,
+				   "Unable to add knet host [%u], error: %s",
+				   knet_host_id, strerror(errno));
+			return -1;
+		}
+		snprintf(tmp_key, ICMAP_KEYNAME_MAXLEN, "nodelist.node.%u.ring0_addr", new_node_pos);
+		if (icmap_get_string(tmp_key, &value) != CS_OK) {
+			log_printf(LOGSYS_LEVEL_ERROR,
+				   "Unable to determine ring0_addr from nodelist");
+			return -1;
+		}
+		if (knet_host_set_name(knet_h, knet_host_id, value) < 0) {
+			free(value);
+			log_printf(LOGSYS_LEVEL_ERROR,
+				   "Unable to set knet hostname for nodeid [%u], error: %s",
+				   knet_host_id, strerror(errno));
+			return -1;
+		}
+		log_printf(LOGSYS_LEVEL_DEBUG,
+			   "Added host [%s] with nodeid [%u] to knet host db",
+			   value, knet_host_id);
+		free(value);
+	}
+	/*
+ 	 * host is in db and with a name set to ring0_addr
+ 	 */
+
+	/*
+	 * TODO: add/update/delete links
+	 */ 
+	return 0;
+}
+
+static int knet_engine_remote_host_manage(void)
+{
+	int res = 0;
+	icmap_iter_t iter;
+	const char *iter_key;
+	uint32_t tmp_node_pos = -1;
+	char tmp_key[ICMAP_KEYNAME_MAXLEN];
+
+	iter = icmap_iter_init("nodelist.node.");
+
+	while ((iter_key = icmap_iter_next(iter, NULL, NULL)) != NULL) {
+		res = sscanf(iter_key, "nodelist.node.%u.%s", &tmp_node_pos, tmp_key);
+		if (res != 2) {
+			log_printf(LOGSYS_LEVEL_ERROR, "Error scanning nodelist");
+			return -1;
+		}
+
+		if (tmp_node_pos == node_pos) {
+			continue;
+		}
+
+		if (strcmp(tmp_key, "ring0_addr") != 0) {
+			continue;
+		}
+
+		if (knet_add_nodes_to_engine(tmp_node_pos) < 0) {
+			log_printf(LOGSYS_LEVEL_ERROR, "Unable to add knet host");
+			return -1;
+		}
+	}
+
+	icmap_iter_finalize(iter);
+
+	/*
+	 * TODO, get knet host list and compare lists to remove
+	 * nodes dynamically
+	 */
+
+	return 0;
+}
+
 static int knet_engine_init(void)
 {
 	uint16_t host_id = node_id;
@@ -429,10 +532,14 @@ static int knet_engine_init(void)
 	}
 	log_printf(LOGSYS_LEVEL_DEBUG, "knet ethernet packet filter installed");
 
-
-	/*
-	 * dyamic config goes here for reload
-	 */
+	log_printf(LOGSYS_LEVEL_DEBUG, "Initializing knet remote hosts");
+	if (knet_engine_remote_host_manage() < 0) {
+		log_printf(LOGSYS_LEVEL_ERROR,
+			  "Unable to initialize knet remote hosts, error: %s",
+			  strerror(errno));
+		return -1;
+	}
+	log_printf(LOGSYS_LEVEL_DEBUG, "knet remote hosts initialized");
 
 	log_printf(LOGSYS_LEVEL_DEBUG,
 		   "Enabling tap knet engine traffic forwarding");
@@ -486,11 +593,34 @@ int knet_init(const char **error_string)
 	return 0;
 }
 
+/*
+ * stop function can do better error report
+ * not critical right now, since exit path is death of corosync
+ */
+static int knet_stop(void)
+{
+	uint16_t knet_host_ids[KNET_MAX_HOST];
+	size_t knet_host_ids_entries = 0;
+
+	if (knet_host_get_host_list(knet_h, knet_host_ids, &knet_host_ids_entries) == 0) {
+		int i;
+
+		for (i = 0; i < knet_host_ids_entries; i++) {
+			knet_host_remove(knet_h, knet_host_ids[i]);
+		}
+	}
+
+	knet_handle_setfwd(knet_h, 0);
+
+	knet_handle_free(knet_h);
+	return 0;
+}
+
 int knet_fini(const char **error_string)
 {
 	if (knet_h) {
 		log_printf(LOGSYS_LEVEL_DEBUG, "Destroying knet engine");
-		knet_handle_free(knet_h);
+		knet_stop();
 		log_printf(LOGSYS_LEVEL_DEBUG, "knet engine destroyed");
 	}
 
