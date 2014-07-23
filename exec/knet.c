@@ -111,6 +111,10 @@ static int knet_read_config(void)
 			   "knet baseport has not been specified in corosync.conf");
 		return -1;
 	}
+	/*
+	 * store it in network format
+	 */
+	knet_baseport = htons(knet_baseport);
 
 	if (icmap_get_string("knet.ifacename", &value) == CS_OK) {
 		if (strlen(value) >= tap_name_size) {
@@ -155,7 +159,8 @@ static int tap_init(void)
 	char tap_mac[18];
 	char tap_ip[64];
 	char *error_string = NULL;
-	uint8_t *nodeid = (uint8_t *)&node_id;
+	uint16_t net_node_id;
+	uint8_t *nodeid = (uint8_t *)&net_node_id;
 	uint8_t *bport = (uint8_t *)&knet_baseport;
 	char tmp_key[ICMAP_KEYNAME_MAXLEN];
 	char *value = NULL;
@@ -173,6 +178,7 @@ static int tap_init(void)
  	 * remember to give it a check re node_id 32bit vs knet node_id 16bit and mac
  	 * address generation here
  	 */ 
+	net_node_id = htons(node_id);
 	snprintf(tap_mac, sizeof(tap_mac) - 1, "54:54:%x:%x:%x:%x",
 		 bport[0], bport[1], nodeid[0], nodeid[1]);
 	log_printf(LOGSYS_LEVEL_DEBUG, "Setting mac [%s] on device [%s]",
