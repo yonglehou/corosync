@@ -52,6 +52,7 @@
 #include <arpa/inet.h>
 #include <netinet/ether.h>
 #include <string.h>
+#include <netdb.h>
 
 #include "knet.h"
 
@@ -111,10 +112,6 @@ static int knet_read_config(void)
 			   "knet baseport has not been specified in corosync.conf");
 		return -1;
 	}
-	/*
-	 * store it in network format
-	 */
-	knet_baseport = htons(knet_baseport);
 
 	if (icmap_get_string("knet.ifacename", &value) == CS_OK) {
 		if (strlen(value) >= tap_name_size) {
@@ -157,11 +154,12 @@ static int knet_find_nodeid(void)
 static int tap_init(void)
 {
 	char tap_mac[18];
-	char tap_ip[64];
+	char tap_ip[KNET_MAX_HOST_LEN];
 	char *error_string = NULL;
 	uint16_t net_node_id;
 	uint8_t *nodeid = (uint8_t *)&net_node_id;
-	uint8_t *bport = (uint8_t *)&knet_baseport;
+	uint16_t net_baseport;
+	uint8_t *bport = (uint8_t *)&net_baseport;
 	char tmp_key[ICMAP_KEYNAME_MAXLEN];
 	char *value = NULL;
 
@@ -179,6 +177,7 @@ static int tap_init(void)
  	 * address generation here
  	 */ 
 	net_node_id = htons(node_id);
+	net_baseport = htons(knet_baseport);
 	snprintf(tap_mac, sizeof(tap_mac) - 1, "54:54:%x:%x:%x:%x",
 		 bport[0], bport[1], nodeid[0], nodeid[1]);
 	log_printf(LOGSYS_LEVEL_DEBUG, "Setting mac [%s] on device [%s]",
@@ -398,6 +397,34 @@ static int ether_host_filter_fn (const unsigned char *outdata,
 	return 0;
 }
 
+static int strtoaddr(const char *host, const char *port,
+		     struct sockaddr *sa, socklen_t salen)
+{
+	int ret;
+	struct addrinfo hints;
+	struct addrinfo *result = NULL;
+
+	memset(&hints, 0, sizeof(struct addrinfo));
+
+	hints.ai_family = AF_UNSPEC;
+	hints.ai_socktype = SOCK_DGRAM;
+	hints.ai_flags = AI_NUMERICHOST | AI_NUMERICSERV;
+
+	ret = getaddrinfo(host, port, &hints, &result);
+
+	if (ret != 0) {
+		errno = EINVAL;
+		return -1;
+	}
+
+	memmove(sa, result->ai_addr,
+		(salen < result->ai_addrlen) ? salen : result->ai_addrlen);
+
+	freeaddrinfo(result);
+
+	return ret;
+}
+
 static int knet_add_nodes_to_engine(unsigned int new_node_pos)
 {
 	int res = 0;
@@ -406,6 +433,16 @@ static int knet_add_nodes_to_engine(unsigned int new_node_pos)
 	uint32_t new_node_id = -1;
 	char knet_host_name[KNET_MAX_HOST_LEN];
 	uint16_t knet_host_id;
+	icmap_iter_t iter;
+	const char *iter_key;
+	char tmp_iter_key[ICMAP_KEYNAME_MAXLEN];
+	struct knet_link_status knet_link_status;
+	char knet_linkid[16];
+	uint8_t knet_link_id;
+	char src_ipaddr[KNET_MAX_HOST_LEN], src_port[KNET_MAX_PORT_LEN];
+	char dst_ipaddr[KNET_MAX_HOST_LEN], dst_port[KNET_MAX_PORT_LEN];
+	struct sockaddr_storage src_addr;
+	struct sockaddr_storage dst_addr;
 
 	snprintf(tmp_key, ICMAP_KEYNAME_MAXLEN, "nodelist.node.%u.nodeid", new_node_pos);
 	if (icmap_get_uint32(tmp_key, &new_node_id) != CS_OK) {
@@ -455,8 +492,102 @@ static int knet_add_nodes_to_engine(unsigned int new_node_pos)
  	 */
 
 	/*
-	 * TODO: add/update/delete links
-	 */ 
+	 * add links
+	 */
+	snprintf(tmp_iter_key, ICMAP_KEYNAME_MAXLEN, "nodelist.node.%u.", new_node_pos);
+	iter = icmap_iter_init(tmp_iter_key);
+	while ((iter_key = icmap_iter_next(iter, NULL, NULL)) != NULL) {
+		res = sscanf(iter_key, "nodelist.node.%u.%s", &new_node_pos, tmp_key);
+		if (res != 2) {
+			log_printf(LOGSYS_LEVEL_ERROR, "Error scanning nodelist");
+			return -1;
+		}
+
+		if (strncmp(tmp_key, "knet_ip", strlen("knet_ip")) != 0) {
+			continue;
+		}
+
+		/*
+ 		 * black magic, extract link id from knet_ipXX
+ 		 */ 
+		strncpy(knet_linkid, tmp_key + 7, 2);
+		knet_link_id = atoi(knet_linkid);
+		if ((knet_link_id < 0) || (knet_link_id > 7)) {
+			log_printf(LOGSYS_LEVEL_ERROR,
+				   "%s is invalid. Allowed range is knet_ip0 to knet_ip7",
+				   tmp_key);
+			return -1;
+		}
+
+		if (icmap_get_string(iter_key, &value) != CS_OK) {
+			log_printf(LOGSYS_LEVEL_ERROR, "Unable to get value for %s", iter_key);
+			return -1;
+		}
+		strncpy(dst_ipaddr, value, KNET_MAX_HOST_LEN);
+		free(value);
+
+		/*
+		 * TODO: for now, assume we are in bootstrap mode, but we need to fix
+		 * this to be smart for reload!
+		 */
+		if (knet_link_get_status(knet_h, knet_host_id, knet_link_id, &knet_link_status) < 0) {
+			log_printf(LOGSYS_LEVEL_WARNING,
+				   "Unable to get knet host [%u] link [%u] status, error: %s",
+				   knet_host_id, knet_link_id, strerror(errno));
+		} else {
+			if (knet_link_set_enable(knet_h, knet_host_id, knet_link_id, 0) < 0) {
+				log_printf(LOGSYS_LEVEL_WARNING,
+					   "Unable to set knet host [%u] link [%u] down, error: %s",
+					   knet_host_id, knet_link_id, strerror(errno));
+			}
+		}
+
+		snprintf(tmp_key, ICMAP_KEYNAME_MAXLEN, "nodelist.node.%u.knet_ip%u", node_pos, knet_link_id);
+		if (icmap_get_string(tmp_key, &value) != CS_OK) {
+			log_printf(LOGSYS_LEVEL_ERROR, "Unable to get value for %s", tmp_key);
+			return -1;
+		}
+		strncpy(src_ipaddr, value, KNET_MAX_HOST_LEN);
+		free(value);
+
+		snprintf(src_port, KNET_MAX_PORT_LEN, "%u", knet_baseport + knet_host_id);
+		snprintf(dst_port, KNET_MAX_PORT_LEN, "%u", knet_baseport + node_id);
+
+		log_printf(LOGSYS_LEVEL_DEBUG,
+			   "About to configure remote hostid [%u] linkid [%u] src [%s:%s] dst [%s:%s]",
+			   knet_host_id, knet_link_id, src_ipaddr, src_port, dst_ipaddr, dst_port);
+
+		if (strtoaddr(src_ipaddr, src_port, (struct sockaddr *)&src_addr, sizeof(struct sockaddr_storage)) != 0) {
+			log_printf(LOGSYS_LEVEL_ERROR, "Unable to convert src_ipaddr [%s] src_port [%s] to sockaddress format",
+				   src_ipaddr, src_port);
+			return -1;
+		}
+		if (strtoaddr(dst_ipaddr, dst_port, (struct sockaddr *)&dst_addr, sizeof(struct sockaddr_storage)) != 0) {
+			log_printf(LOGSYS_LEVEL_ERROR, "Unable to convert dst_ipaddr [%s] dst_port [%s] to sockaddress format",
+				   dst_ipaddr, dst_port);
+			return -1;
+		}
+
+		if (knet_link_set_config(knet_h, knet_host_id, knet_link_id, &src_addr, &dst_addr) < 0) {
+			log_printf(LOGSYS_LEVEL_ERROR, "Unable to configure knet host [%u] link [%u]",
+				   knet_host_id, knet_link_id);
+			return -1;
+		}
+
+		/*
+		 * TODO: hardcode some timeouts for now!
+		 */
+		knet_link_set_timeout(knet_h, knet_host_id, knet_link_id, 500, 2000, 2048);
+
+		if (knet_link_set_enable(knet_h, knet_host_id, knet_link_id, 1) < 0) {
+			log_printf(LOGSYS_LEVEL_ERROR, "Unable to activate knet host [%u] link [%u]",
+				   knet_host_id, knet_link_id);
+			return -1;
+		}
+	}
+
+	icmap_iter_finalize(iter);
+
 	return 0;
 }
 
