@@ -86,6 +86,8 @@ static int knet_log_thread_started = 0;
 static uint16_t knet_baseport = 60000; /* hardcode default? make it a define? */
 static knet_handle_t knet_h = NULL;
 
+static int knet_host_switching_policy;
+
 /*
  * those are config values that CANNOT be changed at runtime
  * return:
@@ -124,6 +126,29 @@ static int knet_read_config(void)
 		free(value);
 	} else {
 		strncpy(tap_name, "cluster-net", tap_name_size);
+	}
+
+	if (icmap_get_string("knet.switchpolicy", &value) == CS_OK) {
+		if (!strncmp(value, "passive", strlen("passive"))) {
+			log_printf(LOGSYS_LEVEL_INFO,
+				   "knet swiching policy set to passive");
+			knet_host_switching_policy = KNET_LINK_POLICY_PASSIVE;
+		}
+		if (!strncmp(value, "active", strlen("active"))) {
+			log_printf(LOGSYS_LEVEL_INFO,
+				   "knet swiching policy set to active");
+			knet_host_switching_policy = KNET_LINK_POLICY_ACTIVE;
+		}
+		if (!strncmp(value, "round-robin", strlen("round-robin"))) {
+			log_printf(LOGSYS_LEVEL_INFO,
+				   "knet swiching policy set to round-robin");
+			knet_host_switching_policy = KNET_LINK_POLICY_RR;
+		}
+		free(value);
+	} else {
+		log_printf(LOGSYS_LEVEL_INFO,
+			   "knet swiching policy set to passive");
+		knet_host_switching_policy = KNET_LINK_POLICY_PASSIVE;
 	}
 
 	return 0;
@@ -474,6 +499,12 @@ static int knet_add_nodes_to_engine(unsigned int new_node_pos)
 		if (knet_host_add(knet_h, knet_host_id) < 0) {
 			log_printf(LOGSYS_LEVEL_ERROR,
 				   "Unable to add knet host [%u], error: %s",
+				   knet_host_id, strerror(errno));
+			return -1;
+		}
+		if (knet_host_set_policy(knet_h, knet_host_id, knet_host_switching_policy) < 0) {
+			log_printf(LOGSYS_LEVEL_ERROR,
+				   "Unable to set knet switching policy for nodeid [%u], error: %s",
 				   knet_host_id, strerror(errno));
 			return -1;
 		}
