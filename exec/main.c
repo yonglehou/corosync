@@ -1321,6 +1321,7 @@ int main (int argc, char **argv, char **envp)
 	res = knet_init_pre_totem(&error_string);
 	if (res == -1) {
 		log_printf (LOGSYS_LEVEL_ERROR, "%s", error_string);
+		knet_fini(&error_string);
 		corosync_exit_error (COROSYNC_DONE_MAINCONFIGREAD);
 	}
 #endif
@@ -1424,6 +1425,7 @@ int main (int argc, char **argv, char **envp)
 	res = knet_init_post_background(&error_string);
 	if (res == -1) {
 		log_printf (LOGSYS_LEVEL_ERROR, "%s", error_string);
+		knet_fini(&error_string);
 		corosync_exit_error (COROSYNC_DONE_MAINCONFIGREAD);
 	}
 #endif
