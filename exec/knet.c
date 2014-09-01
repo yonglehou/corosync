@@ -291,7 +291,7 @@ static void *_handle_logging_thread(void *data)
 
 	memcpy(&logfd, data, sizeof(int));
 
-	while (se_result >= 0){
+	while (se_result >= 0) {
 		FD_ZERO (&rfds);
 		FD_SET (logfd, &rfds);
 
@@ -430,8 +430,7 @@ static int ether_host_filter_fn (const unsigned char *outdata,
 	return 0;
 }
 
-static int strtoaddr(const char *host, const char *port,
-		     struct sockaddr *sa, socklen_t salen)
+static int strtoaddr(const char *host, const char *port, struct sockaddr *sa, socklen_t salen)
 {
 	int ret;
 	struct addrinfo hints;
@@ -802,6 +801,7 @@ int knet_fini(const char **error_string)
 	}
 
 	if (knet_log_thread_started) {
+		sleep(2); /* LOOK SOMEWHERE ELSE! easy way out to allow log thread to empty the fd queue */
 		pthread_cancel(knet_logging_thread);
 		close(knet_logfd[0]);
 		close(knet_logfd[1]);
